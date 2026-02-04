@@ -1,0 +1,162 @@
+[
+  {
+    "title": "Consolidate short-lived job clusters into shared or reused job clusters",
+    "description": "Dozens of job clusters using node type Standard_F4 are created and terminated within ~7\u20139 minutes each. Repeated startup overhead (driver + workers + Databricks Units) significantly increases cost relative to actual compute work. Using a shared job cluster or enabling cluster reuse for sequential tasks would reduce DBU and VM startup costs.",
+    "type": "cost_leak",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "job-229907899455689",
+    "estimated_savings": "20\u201340% of job compute costs",
+    "risk": "low",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "job-229907899455689",
+      "params": {
+        "num_workers": 1
+      }
+    },
+    "status": "APPROVED",
+    "id": "rec_6b189d2c6b3c46d98abdc0b01de63fcd",
+    "created_at": "2026-01-29T11:49:39.860531",
+    "updated_at": "2026-02-04T18:38:29.773343"
+  },
+  {
+    "title": "Evaluate downsizing Standard_F4 node type for lightweight jobs",
+    "description": "All job clusters use Standard_F4 nodes despite very short runtimes, suggesting the workloads may be lightweight. If CPU and memory utilization is low, switching to a smaller node type (e.g., F2 or equivalent) would lower per-hour VM and DBU costs without impacting performance.",
+    "type": "optimization_opportunity",
+    "severity": "medium",
+    "resource_type": "cluster",
+    "resource_id": "Standard_F4",
+    "estimated_savings": "15\u201330% per job run",
+    "risk": "medium",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "Standard_F4",
+      "params": {
+        "num_workers": 1
+      }
+    },
+    "status": "APPROVED",
+    "id": "rec_6df2020979494376aca6fb6cb1b33415",
+    "created_at": "2026-01-29T11:49:39.860531",
+    "updated_at": "2026-02-04T18:38:31.575881"
+  },
+  {
+    "title": "Terminate or strictly auto-terminate idle interactive cluster",
+    "description": "The interactive cluster 'playground' ran for an extremely long duration (from start_time 1768242839157 to terminated_time 1769671888979). Even with zero workers, the driver and DBUs incur continuous cost. Enforcing aggressive auto-termination or replacing with ephemeral clusters would reduce idle spend.",
+    "type": "cost_leak",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "0112-183358-dgy2sni8",
+    "estimated_savings": "Up to 100% of idle interactive cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "terminate_cluster",
+      "target_id": "0112-183358-dgy2sni8",
+      "params": {}
+    },
+    "status": "REJECTED",
+    "id": "rec_5e254328ba124bed834f6bdf1d658a0e",
+    "created_at": "2026-01-29T11:49:39.860531",
+    "updated_at": "2026-02-04T18:38:34.893273"
+  },
+  {
+    "title": "Deduplicate log ingestion to improve cost attribution and governance",
+    "description": "The same cluster and job run records appear multiple times with different load_timestamp values, indicating duplicated ingestion. While not a direct compute cost, this inflates storage and makes accurate cost analysis difficult, potentially masking real cost leaks.",
+    "type": "value_leak",
+    "severity": "low",
+    "resource_type": "job",
+    "resource_id": "12345",
+    "estimated_savings": "Storage and operational overhead reduction (5\u201310%)",
+    "risk": "low",
+    "action": {
+      "type": "terminate_cluster",
+      "target_id": "cluster-abc123",
+      "params": {}
+    },
+    "status": "REJECTED",
+    "id": "rec_9fadb617bc8c4a9c93364b45d8b4946d",
+    "created_at": "2026-01-29T11:49:39.860531",
+    "updated_at": "2026-02-04T18:38:36.629593"
+  },
+  {
+    "title": "Reduce job cluster churn by reusing clusters",
+    "description": "Hundreds of job clusters were created for the same job (job_id 229907899455689), each running for ~6\u20138 minutes on average. This pattern incurs repeated cluster startup costs (VM provisioning + Databricks DBUs) that can outweigh actual compute time. Using a shared job cluster or enabling cluster reuse for sequential runs would significantly reduce overhead.",
+    "type": "cost_leak",
+    "severity": "high",
+    "resource_type": "job",
+    "resource_id": "229907899455689",
+    "estimated_savings": "20\u201340% of job-related compute cost",
+    "risk": "low",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "job-229907899455689",
+      "params": {
+        "num_workers": 1
+      }
+    },
+    "status": "PENDING",
+    "id": "rec_023e0d98c55a40498533205c0a48cafa",
+    "created_at": "2026-01-29T11:49:42.508400",
+    "updated_at": "2026-01-29T11:49:42.508400"
+  },
+  {
+    "title": "Downsize node type for short-running workloads",
+    "description": "All job clusters use Standard_F4 nodes regardless of very short execution durations (<10 minutes). For lightweight ETL or orchestration-style jobs, smaller VM types (e.g., Standard_F2 or autoscaling with min=1) are typically sufficient and cheaper.",
+    "type": "optimization_opportunity",
+    "severity": "medium",
+    "resource_type": "cluster",
+    "resource_id": "Standard_F4",
+    "estimated_savings": "15\u201325% per job run",
+    "risk": "medium",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "Standard_F4",
+      "params": {
+        "num_workers": 1
+      }
+    },
+    "status": "PENDING",
+    "id": "rec_f0dbfca1032c45189c4dfff9747af5f5",
+    "created_at": "2026-01-29T11:49:42.508400",
+    "updated_at": "2026-01-29T11:49:42.508400"
+  },
+  {
+    "title": "Eliminate duplicate log ingestion to avoid analysis overhead",
+    "description": "The same cluster records appear multiple times with different load_timestamps, indicating duplicate ingestion of cluster logs. While not a direct Databricks compute cost, this inflates downstream storage and analytics costs and can mislead optimization decisions.",
+    "type": "value_leak",
+    "severity": "medium",
+    "resource_type": "job",
+    "resource_id": "log-ingestion",
+    "estimated_savings": "Storage and reporting cost reduction (variable)",
+    "risk": "low",
+    "action": {
+      "type": "terminate_cluster",
+      "target_id": "log-ingestion",
+      "params": {}
+    },
+    "status": "PENDING",
+    "id": "rec_f9263f160ff1495e8e5ed695f4d0cdbb",
+    "created_at": "2026-01-29T11:49:42.508400",
+    "updated_at": "2026-01-29T11:49:42.508400"
+  },
+  {
+    "title": "Enforce auto-termination on long-lived UI clusters",
+    "description": "The UI cluster 'playground' (Standard_D4ds_v5) ran for an extremely long duration before termination, despite having zero workers. This is a classic idle cost scenario and should be controlled with aggressive auto-termination policies.",
+    "type": "cost_leak",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "0112-183358-dgy2sni8",
+    "estimated_savings": "Up to 100% of idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "terminate_cluster",
+      "target_id": "0112-183358-dgy2sni8",
+      "params": {}
+    },
+    "status": "PENDING",
+    "id": "rec_66744159796f403f8dbfa4ed7ac6ca47",
+    "created_at": "2026-01-29T11:49:42.508400",
+    "updated_at": "2026-01-29T11:49:42.508400"
+  }
+]

@@ -1,0 +1,1342 @@
+"""Flask backend for ClusterIQ using direct HTTP requests."""
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from typing import List, Dict, Any
+import logging
+from datetime import datetime
+
+from config import settings
+from databricks_client import DatabricksClient
+from ai_agent import ClusterIQAgent
+from cost_calculator import cost_calculator
+from approval_store import add_recommendations, list_recommendations, update_status, get_recommendation
+from logs_manager import log_manager, setup_logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app, origins=settings.cors_origins)
+
+# Initialize clients
+databricks_client = None
+ai_agent = None
+
+# Cache for analysis results
+analysis_cache = {}
+cache_timestamp = None
+
+# Runtime configuration for Delta table names
+delta_table_config = {
+    "cluster_events_table": settings.delta_cluster_events_table,
+    "cluster_logs_table": settings.delta_cluster_logs_table,
+    "job_run_logs_table": settings.delta_job_run_logs_table,
+}
+
+
+# Initialize clients on startup
+try:
+    if settings.databricks_host and settings.databricks_token:
+        databricks_client = DatabricksClient(
+            host=settings.databricks_host,
+            token=settings.databricks_token
+        )
+        logger.info("Databricks client initialized")
+    
+    if settings.azure_openai_endpoint and settings.azure_openai_api_key and settings.azure_openai_deployment_name:
+        ai_agent = ClusterIQAgent(
+            azure_endpoint=settings.azure_openai_endpoint,
+            azure_api_key=settings.azure_openai_api_key,
+            azure_deployment_name=settings.azure_openai_deployment_name,
+            model=settings.openai_model
+        )
+        logger.info("AI agent initialized with Azure OpenAI")
+    elif settings.openai_api_key:
+        ai_agent = ClusterIQAgent(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model
+        )
+        logger.info("AI agent initialized")
+except Exception as e:
+    logger.error(f"Error during startup: {str(e)}")
+
+
+@app.route("/")
+def root():
+    """Root endpoint."""
+    return jsonify({
+        "service": "ClusterIQ API",
+        "version": "1.0.0",
+        "status": "running"
+    })
+
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "databricks_configured": databricks_client is not None,
+        "ai_configured": ai_agent is not None,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+
+@app.route("/api/jobs", methods=["GET"])
+def get_jobs():
+    """Fetch all Databricks jobs."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        jobs = databricks_client.get_all_jobs()
+        return jsonify(jobs)
+    except Exception as e:
+        logger.error(f"Error fetching jobs: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/jobs/<int:job_id>/runs", methods=["GET"])
+def get_job_runs(job_id):
+    """Fetch runs for a specific job."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        limit = request.args.get("limit", 50, type=int)
+        runs = databricks_client.get_job_runs(job_id=job_id, limit=limit)
+        return jsonify(runs)
+    except Exception as e:
+        logger.error(f"Error fetching job runs: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/clusters", methods=["GET"])
+def get_clusters():
+    """Fetch all Databricks clusters."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        logger.info("API: Fetching clusters...")
+        clusters = databricks_client.get_all_clusters()
+        logger.info(f"API: Returning {len(clusters)} clusters")
+        return jsonify(clusters)
+    except Exception as e:
+        logger.error(f"Error fetching clusters: {str(e)}", exc_info=True)
+        return jsonify([{"error": str(e), "message": "Failed to fetch clusters"}]), 500
+
+
+@app.route("/api/clusters/<cluster_id>/metrics", methods=["GET"])
+def get_cluster_metrics(cluster_id):
+    """Fetch metrics for a specific cluster."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        metrics = databricks_client.get_cluster_metrics(cluster_id)
+        return jsonify(metrics)
+    except Exception as e:
+        logger.error(f"Error fetching cluster metrics: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/clusters/<string:cluster_id>/start", methods=["POST", "OPTIONS"])
+def start_cluster(cluster_id):
+    """Start a terminated cluster."""
+    logger.info(f"=== START CLUSTER ENDPOINT HIT === cluster_id={cluster_id}, method={request.method}")
+    
+    if request.method == "OPTIONS":
+        return "", 200
+    
+    if not databricks_client:
+        return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+    
+    try:
+        logger.info(f"Starting cluster {cluster_id}")
+        result = databricks_client.start_cluster(cluster_id)
+        
+        if result.get("status") == "success":
+            logger.info(f"Successfully started cluster {cluster_id}")
+            return jsonify({
+                "success": True,
+                "message": f"Cluster {cluster_id} started successfully",
+                "result": result
+            }), 200
+        else:
+            error_msg = result.get("error", "Failed to start cluster")
+            logger.error(f"Error starting cluster {cluster_id}: {error_msg}")
+            return jsonify({
+                "success": False,
+                "error": error_msg,
+                "result": result
+            }), 400
+    
+    except Exception as e:
+        logger.error(f"Exception starting cluster {cluster_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/clusters/<string:cluster_id>/terminate", methods=["POST", "OPTIONS"])
+def terminate_cluster(cluster_id):
+    """Terminate a running cluster."""
+    logger.info(f"=== TERMINATE CLUSTER ENDPOINT HIT === cluster_id={cluster_id}, method={request.method}")
+    
+    if request.method == "OPTIONS":
+        return "", 200
+    
+    if not databricks_client:
+        return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+    
+    try:
+        logger.info(f"Terminating cluster {cluster_id}")
+        result = databricks_client.terminate_cluster(cluster_id)
+        
+        if result.get("status") == "success":
+            logger.info(f"Successfully terminated cluster {cluster_id}")
+            return jsonify({
+                "success": True,
+                "message": f"Cluster {cluster_id} terminated successfully",
+                "result": result
+            }), 200
+        else:
+            error_msg = result.get("error", "Failed to terminate cluster")
+            logger.error(f"Error terminating cluster {cluster_id}: {error_msg}")
+            return jsonify({
+                "success": False,
+                "error": error_msg,
+                "result": result
+            }), 400
+    
+    except Exception as e:
+        logger.error(f"Exception terminating cluster {cluster_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/analyze", methods=["POST"])
+def analyze_jobs_and_clusters():
+    """Analyze jobs and clusters to identify cost leaks."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        # Fetch data
+        logger.info("Fetching jobs and clusters...")
+        jobs = databricks_client.get_all_jobs()
+        clusters = databricks_client.get_all_clusters()
+        logger.info(f"Fetched: {len(jobs)} jobs, {len(clusters)} clusters")
+        
+        recommendations = []
+        analysis_type = "rule-based"
+        analysis_summary = (
+            f"Analyzed {len(jobs)} jobs and {len(clusters)} clusters. "
+            "Rule-based analysis is enabled."
+        )
+        
+        # Always start with rule-based analysis
+        logger.info("Performing rule-based analysis on clusters and jobs...")
+        try:
+            # Import the basic analysis function
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from simple_server import perform_basic_analysis
+            
+            basic_recommendations = perform_basic_analysis(jobs, clusters)
+            recommendations.extend(basic_recommendations)
+            logger.info(f"Rule-based analysis generated {len(basic_recommendations)} recommendations")
+        except Exception as basic_error:
+            logger.error(f"Error in rule-based analysis: {str(basic_error)}")
+            # Create basic recommendations manually if import fails
+            for cluster in clusters:
+                if cluster.get("state") == "RUNNING":
+                    # Calculate potential savings
+                    num_workers = cluster.get("num_workers", 1)
+                    monthly_cost = (num_workers + 1) * 0.40 * 100  # Rough estimate
+                    potential_savings = monthly_cost * 0.3  # 30% savings potential
+                    
+                    recommendations.append({
+                        "id": f"rec_{len(recommendations)}",
+                        "type": "cost_leak",
+                        "severity": "medium",
+                        "title": f"Optimize cluster: {cluster.get('cluster_name', 'Unknown')}",
+                        "description": f"Cluster is running with {num_workers} workers. Consider downsizing or enabling auto-termination.",
+                        "resource_type": "cluster",
+                        "resource_id": cluster.get("cluster_id"),
+                        "estimated_savings": f"${potential_savings:.2f}/month",
+                        "estimated_savings_monthly": potential_savings,
+                        "estimated_savings_annual": potential_savings * 12,
+                        "action": {
+                            "type": "resize_cluster",
+                            "target_id": cluster.get("cluster_id"),
+                            "params": {
+                                "num_workers": max(1, int(num_workers / 2))
+                            }
+                        },
+                        "risk": "Low",
+                    })
+            for job in jobs:
+                if len(job.get("settings", {}).get("tasks", [])) == 0:
+                    recommendations.append({
+                        "id": f"rec_{len(recommendations)}",
+                        "type": "optimization",
+                        "severity": "low",
+                        "title": f"Review job: {job.get('job_name', 'Unknown')}",
+                        "description": "Job has no configured tasks. Consider reviewing job configuration.",
+                        "resource_type": "job",
+                        "resource_id": job.get("job_id"),
+                        "estimated_savings": "$0.00",
+                        "estimated_savings_monthly": 0,
+                        "estimated_savings_annual": 0,
+                        "risk": "Low",
+                    })
+        
+        # Try AI analysis if available (enhances the recommendations)
+        if ai_agent:
+            try:
+                logger.info("Attempting AI-enhanced analysis...")
+                # Fetch runs for each job (limit to recent runs)
+                job_runs = {}
+                for job in jobs[:10]:  # Limit to first 10 jobs for performance
+                    job_id = job.get("job_id")
+                    if job_id:
+                        try:
+                            runs = databricks_client.get_job_runs(job_id=job_id, limit=10)
+                            job_runs[job_id] = runs
+                        except Exception as run_error:
+                            logger.warning(f"Could not fetch runs for job {job_id}: {str(run_error)}")
+                
+                # Perform AI analysis
+                ai_recommendations = ai_agent.analyze_jobs_and_clusters(
+                    jobs=jobs,
+                    clusters=clusters,
+                    job_runs=job_runs
+                )
+                
+                # If AI analysis succeeds and returns recommendations, use it
+                if ai_recommendations and len(ai_recommendations) > 0:
+                    recommendations = ai_recommendations
+                    analysis_type = "ai"
+                    logger.info(f"AI analysis completed: {len(recommendations)} recommendations")
+                    analysis_summary = ai_agent.generate_summary(jobs=jobs, clusters=clusters)
+                else:
+                    logger.info("AI analysis returned no recommendations, using rule-based results")
+            except Exception as ai_error:
+                logger.warning(f"AI analysis failed, using rule-based results: {str(ai_error)}")
+                # Continue with rule-based recommendations
+        else:
+            logger.info("AI agent not available, using rule-based analysis")
+        
+        # Ensure we have at least some recommendations
+        if not recommendations:
+            recommendations = [{
+                "id": "rec_no_data",
+                "type": "info",
+                "severity": "low",
+                "title": "Analysis Complete",
+                "description": f"Analyzed {len(jobs)} jobs and {len(clusters)} clusters. No immediate optimization opportunities detected.",
+                "estimated_savings": "Continue monitoring",
+                "risk": "None",
+            }]
+        
+        # Update cache
+        global analysis_cache, cache_timestamp
+        analysis_cache = {
+            "recommendations": recommendations,
+            "jobs_count": len(jobs),
+            "clusters_count": len(clusters),
+            "timestamp": datetime.utcnow().isoformat(),
+            "analysis_type": analysis_type,
+            "analysis_summary": analysis_summary
+        }
+        cache_timestamp = datetime.utcnow()
+        
+        return jsonify({
+            "recommendations": recommendations,
+            "summary": {
+                "total_jobs": len(jobs),
+                "total_clusters": len(clusters),
+                "recommendations_count": len(recommendations),
+                "analysis_type": analysis_type,
+                "analysis_summary": analysis_summary,
+                "timestamp": cache_timestamp.isoformat()
+            }
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in analysis: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/recommendations", methods=["GET"])
+def get_recommendations():
+    """Get cached recommendations."""
+    if not analysis_cache or not analysis_cache.get("recommendations"):
+        return jsonify({
+            "recommendations": [],
+            "has_analysis": False,
+            "message": "No analysis available. Run /api/analyze first."
+        }), 200
+    
+    return jsonify({
+        **analysis_cache,
+        "has_analysis": True
+    })
+
+
+@app.route("/api/recommendations/real-time", methods=["GET"])
+def get_recommendations_realtime():
+    """Get real-time recommendations (returns cached analysis if available)."""
+    # First check if we have cached analysis
+    if analysis_cache and analysis_cache.get("recommendations"):
+        return jsonify({
+            **analysis_cache,
+            "real_time": True,
+            "has_analysis": True,
+            "timestamp": cache_timestamp.isoformat() if cache_timestamp else datetime.utcnow().isoformat()
+        })
+    
+    # If no cache, check if services are configured
+    if not databricks_client:
+        return jsonify({
+            "recommendations": [],
+            "timestamp": datetime.utcnow().isoformat(),
+            "real_time": True,
+            "has_analysis": False,
+            "message": "No analysis available. Databricks client not configured. Please configure Databricks credentials and run an analysis first."
+        }), 200
+    
+    if not ai_agent:
+        return jsonify({
+            "recommendations": [],
+            "timestamp": datetime.utcnow().isoformat(),
+            "real_time": True,
+            "has_analysis": False,
+            "message": "No analysis available. AI agent not configured. Please configure OpenAI/Azure OpenAI credentials and run an analysis first."
+        }), 200
+    
+    # If no cache but services are configured, return message to run analysis
+    return jsonify({
+        "recommendations": [],
+        "timestamp": datetime.utcnow().isoformat(),
+        "real_time": True,
+        "has_analysis": False,
+        "message": "No analysis available. Please run an analysis first."
+    }), 200
+
+
+@app.route("/api/stats", methods=["GET"])
+def get_stats():
+    """Get overall statistics including all compute resources."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        # Get basic resources
+        jobs = databricks_client.get_all_jobs()
+        clusters = databricks_client.get_all_clusters()
+        
+        running_clusters = [c for c in clusters if c.get("state") == "RUNNING"]
+        
+        # Get all compute resource types (with individual error handling)
+        try:
+            sql_warehouses = databricks_client.get_sql_warehouses()
+        except Exception as e:
+            logger.warning(f"Error getting SQL warehouses: {e}")
+            sql_warehouses = []
+            
+        try:
+            pools = databricks_client.get_instance_pools()
+        except Exception as e:
+            logger.warning(f"Error getting instance pools: {e}")
+            pools = []
+            
+        try:
+            vector_search = databricks_client.get_vector_search_endpoints()
+        except Exception as e:
+            logger.warning(f"Error getting vector search endpoints: {e}")
+            vector_search = []
+            
+        try:
+            policies = databricks_client.get_cluster_policies()
+        except Exception as e:
+            logger.warning(f"Error getting cluster policies: {e}")
+            policies = []
+            
+        try:
+            apps = databricks_client.get_apps()
+        except Exception as e:
+            logger.warning(f"Error getting apps: {e}")
+            apps = []
+        
+        # Get ML/AI resources (with individual error handling)
+        try:
+            ml_jobs = databricks_client.get_ml_jobs()
+        except Exception as e:
+            logger.warning(f"Error getting ML jobs: {e}")
+            ml_jobs = []
+            
+        try:
+            mlflow_experiments = databricks_client.get_mlflow_experiments()
+        except Exception as e:
+            logger.warning(f"Error getting MLflow experiments: {e}")
+            mlflow_experiments = []
+            
+        try:
+            mlflow_models = databricks_client.get_mlflow_models()
+        except Exception as e:
+            logger.warning(f"Error getting MLflow models: {e}")
+            mlflow_models = []
+            
+        try:
+            model_serving = databricks_client.get_model_serving_endpoints()
+        except Exception as e:
+            logger.warning(f"Error getting model serving endpoints: {e}")
+            model_serving = []
+            
+        try:
+            feature_store = databricks_client.get_feature_store_tables()
+        except Exception as e:
+            logger.warning(f"Error getting feature store tables: {e}")
+            feature_store = []
+        
+        return jsonify({
+            # Basic stats
+            "total_jobs": len(jobs),
+            "total_clusters": len(clusters),
+            "running_clusters": len(running_clusters),
+            "idle_clusters": len([c for c in running_clusters if c.get("num_workers", 0) > 0]),
+            
+            # All compute resource types
+            "sql_warehouses": len(sql_warehouses),
+            "pools": len(pools),
+            "vector_search_endpoints": len(vector_search),
+            "policies": len(policies),
+            "apps": len(apps),
+            "lakebase_resources": 0,  # Placeholder - requires specific API
+            
+            # ML/AI resources
+            "ml_jobs": len(ml_jobs),
+            "mlflow_experiments": len(mlflow_experiments),
+            "mlflow_models": len(mlflow_models),
+            "model_serving_endpoints": len(model_serving),
+            "feature_store_tables": len(feature_store),
+            
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    except Exception as e:
+        logger.error(f"Error fetching stats: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/summary", methods=["GET"])
+def get_summary():
+    """Get summary metrics including cost savings and optimization statistics."""
+    try:
+        # Get recommendations from cache
+        recommendations = analysis_cache.get("recommendations", []) if analysis_cache else []
+        
+        # Calculate metrics
+        total_recommendations = len(recommendations)
+        
+        # Calculate cost savings
+        total_savings = 0
+        savings_by_type = {"cost_leak": 0, "value_leak": 0, "optimization_opportunity": 0}
+        
+        for rec in recommendations:
+            savings_str = rec.get("estimated_savings", "")
+            if savings_str:
+                # Try to extract numeric value (handles "$500/month", "30%", etc.)
+                import re
+                # Extract numbers (including decimals)
+                numbers = re.findall(r'\d+\.?\d*', savings_str)
+                if numbers:
+                    savings_value = float(numbers[0])
+                    # If it's a percentage, estimate based on average (rough calculation)
+                    if '%' in savings_str.lower():
+                        savings_value = savings_value * 100  # Rough estimate: treat % as base amount
+                    total_savings += savings_value
+                    
+                    # Track by type
+                    rec_type = rec.get("type", "optimization_opportunity")
+                    if rec_type in savings_by_type:
+                        savings_by_type[rec_type] += savings_value
+        
+        # Count by type
+        by_type = {
+            "cost_leak": len([r for r in recommendations if r.get("type") == "cost_leak"]),
+            "value_leak": len([r for r in recommendations if r.get("type") == "value_leak"]),
+            "optimization_opportunity": len([r for r in recommendations if r.get("type") == "optimization_opportunity"])
+        }
+        
+        # Count by severity
+        by_severity = {
+            "high": len([r for r in recommendations if r.get("severity") == "high"]),
+            "medium": len([r for r in recommendations if r.get("severity") == "medium"]),
+            "low": len([r for r in recommendations if r.get("severity") == "low"])
+        }
+        
+        # Count unique jobs identified for optimization
+        job_ids = set()
+        for rec in recommendations:
+            if rec.get("resource_type") == "job":
+                resource_id = rec.get("resource_id")
+                if resource_id:
+                    job_ids.add(str(resource_id))
+        
+        # Count unique resources by type
+        resources_by_type = {}
+        for rec in recommendations:
+            res_type = rec.get("resource_type", "unknown")
+            if res_type not in resources_by_type:
+                resources_by_type[res_type] = set()
+            resource_id = rec.get("resource_id")
+            if resource_id:
+                resources_by_type[res_type].add(str(resource_id))
+        
+        resources_count = {k: len(v) for k, v in resources_by_type.items()}
+        
+        # Get analysis metadata
+        analysis_timestamp = cache_timestamp.isoformat() if cache_timestamp else None
+        jobs_analyzed = analysis_cache.get("jobs_count", 0) if analysis_cache else 0
+        clusters_analyzed = analysis_cache.get("clusters_count", 0) if analysis_cache else 0
+        
+        return jsonify({
+            "total_cost_savings": round(total_savings, 2),
+            "total_cost_savings_formatted": f"${total_savings:,.2f}",
+            "total_recommendations": total_recommendations,
+            "jobs_identified": len(job_ids),
+            "resources_optimized": sum(resources_count.values()),
+            "by_type": by_type,
+            "by_severity": by_severity,
+            "savings_by_type": {k: round(v, 2) for k, v in savings_by_type.items()},
+            "resources_by_type": resources_count,
+            "analysis_metadata": {
+                "timestamp": analysis_timestamp,
+                "jobs_analyzed": jobs_analyzed,
+                "clusters_analyzed": clusters_analyzed,
+                "has_analysis": len(recommendations) > 0
+            },
+            "success_metrics": {
+                "recommendations_generated": total_recommendations,
+                "high_priority_actions": by_severity["high"],
+                "potential_monthly_savings": round(total_savings, 2),
+                "optimization_coverage": f"{len(job_ids)} jobs, {sum(resources_count.values())} resources"
+            }
+        })
+    
+    except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "total_cost_savings": 0,
+            "total_recommendations": 0,
+            "jobs_identified": 0,
+            "has_analysis": False
+        }), 500
+
+
+@app.route("/api/config/delta-tables", methods=["GET", "POST"])
+def configure_delta_tables():
+    """Get or set Delta table configuration for analysis."""
+    global delta_table_config
+    
+    if request.method == "POST":
+        try:
+            data = request.get_json() or {}
+            
+            # Update configuration with provided values
+            if "cluster_events_table" in data:
+                delta_table_config["cluster_events_table"] = data["cluster_events_table"]
+                logger.info(f"Updated cluster_events_table to: {data['cluster_events_table']}")
+            
+            if "cluster_logs_table" in data:
+                delta_table_config["cluster_logs_table"] = data["cluster_logs_table"]
+                logger.info(f"Updated cluster_logs_table to: {data['cluster_logs_table']}")
+            
+            if "job_run_logs_table" in data:
+                delta_table_config["job_run_logs_table"] = data["job_run_logs_table"]
+                logger.info(f"Updated job_run_logs_table to: {data['job_run_logs_table']}")
+            
+            return jsonify({
+                "success": True,
+                "message": "Delta table configuration updated",
+                "config": delta_table_config
+            }), 200
+        except Exception as e:
+            logger.error(f"Error updating delta table config: {str(e)}")
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 400
+    
+    # GET method
+    return jsonify({
+        "config": delta_table_config,
+        "help": "To update table names, send POST request with table names in the format 'database.table' (e.g., 'default.cluster_events')"
+    }), 200
+
+
+@app.route("/api/debug/warehouses", methods=["GET"])
+def debug_warehouses():
+    """Get available SQL warehouses for debugging."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        warehouses = databricks_client.get_sql_warehouses()
+        return jsonify({
+            "warehouses": warehouses,
+            "count": len(warehouses),
+            "help": "Use the 'id' field as warehouse_id in the analyze_delta_tables request body"
+        })
+    except Exception as e:
+        logger.error(f"Error fetching warehouses: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/debug/clusters", methods=["GET"])
+def debug_clusters():
+    """Debug endpoint to test cluster fetching."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        logger.info("Debug: Testing cluster fetching...")
+        clusters = databricks_client.get_all_clusters()
+        
+        return jsonify({
+            "processed_clusters_count": len(clusters),
+            "clusters": clusters,
+            "client_host": databricks_client.host,
+        })
+    
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "client_host": databricks_client.host if databricks_client else None,
+        }), 500
+
+
+@app.route("/api/delta-table/read", methods=["POST"])
+def read_delta_table():
+    """Read data from a Delta table."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        data = request.get_json()
+        table_name = data.get("table_name")
+        limit = data.get("limit", 1000)
+        warehouse_id = data.get("warehouse_id")
+        
+        if not table_name:
+            return jsonify({"error": "table_name is required"}), 400
+        
+        logger.info(f"Reading Delta table: {table_name}")
+        result = databricks_client.read_delta_table(
+            table_name=table_name,
+            limit=limit,
+            warehouse_id=warehouse_id
+        )
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Error reading Delta table: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/delta-table/summarize", methods=["POST"])
+def summarize_delta_table():
+    """Read a Delta table and generate an AI summary."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    if not ai_agent:
+        return jsonify({"error": "AI agent not configured"}), 503
+    
+    try:
+        data = request.get_json()
+        table_name = data.get("table_name")
+        limit = data.get("limit", 1000)
+        warehouse_id = data.get("warehouse_id")
+        analysis_focus = data.get("analysis_focus", "general")
+        
+        if not table_name:
+            return jsonify({"error": "table_name is required"}), 400
+        
+        logger.info(f"Reading and summarizing Delta table: {table_name}")
+        
+        # Read the Delta table
+        table_data = databricks_client.read_delta_table(
+            table_name=table_name,
+            limit=limit,
+            warehouse_id=warehouse_id
+        )
+        
+        if table_data.get("status") != "success":
+            return jsonify(table_data), 400
+        
+        # Generate summary using AI
+        summary = ai_agent.summarize_delta_table_data(
+            table_data=table_data,
+            analysis_focus=analysis_focus
+        )
+        
+        return jsonify(summary)
+    
+    except Exception as e:
+        logger.error(f"Error summarizing Delta table: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/analyze-delta", methods=["POST"])
+def analyze_delta_tables():
+    """Analyze Delta log tables and create pending recommendations."""
+    global delta_table_config
+    
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    if not ai_agent:
+        return jsonify({"error": "AI agent not configured"}), 503
+    
+    try:
+        data = request.get_json() or {}
+        
+        # Use runtime configuration or request overrides
+        cluster_events_table = data.get("cluster_events_table", delta_table_config.get("cluster_events_table"))
+        cluster_logs_table = data.get("cluster_logs_table", delta_table_config.get("cluster_logs_table"))
+        job_run_logs_table = data.get("job_run_logs_table", delta_table_config.get("job_run_logs_table"))
+        limit = data.get("limit", 1000)
+        analysis_focus = data.get("analysis_focus", "cost")
+        warehouse_id = data.get("warehouse_id")
+        
+        # If no warehouse_id provided, try to get one
+        if not warehouse_id:
+            try:
+                warehouses = databricks_client.get_sql_warehouses()
+                if warehouses:
+                    warehouse_id = warehouses[0].get("id")
+                    logger.info(f"Using SQL warehouse: {warehouse_id}")
+                else:
+                    return jsonify({
+                        "error": "No SQL warehouses available. Please create a SQL warehouse or provide a warehouse_id.",
+                        "help": "Create a SQL warehouse in Databricks and pass warehouse_id in request body."
+                    }), 400
+            except Exception as e:
+                logger.warning(f"Could not fetch warehouses: {str(e)}")
+                return jsonify({
+                    "error": "Could not connect to any SQL warehouses. Please provide a warehouse_id.",
+                    "help": "Pass warehouse_id in request body: {\"warehouse_id\": \"<warehouse-id>\"}"
+                }), 400
+        
+        logger.info(f"Analyzing Delta tables: {cluster_events_table}, {cluster_logs_table}, {job_run_logs_table}")
+        logger.info(f"Using warehouse: {warehouse_id}")
+        
+        cluster_events = databricks_client.read_delta_table(
+            table_name=cluster_events_table,
+            limit=limit,
+            warehouse_id=warehouse_id
+        )
+        
+        if cluster_events.get("status") != "success":
+            error_msg = cluster_events.get("error", "Unknown error")
+            logger.error(f"Failed to read cluster_events table: {error_msg}")
+            return jsonify({
+                "error": f"Failed to read cluster_events table '{cluster_events_table}': {error_msg}",
+                "table": cluster_events_table,
+                "details": cluster_events
+            }), 400
+        
+        cluster_logs = databricks_client.read_delta_table(
+            table_name=cluster_logs_table,
+            limit=limit,
+            warehouse_id=warehouse_id
+        )
+        
+        if cluster_logs.get("status") != "success":
+            error_msg = cluster_logs.get("error", "Unknown error")
+            logger.error(f"Failed to read cluster_logs table: {error_msg}")
+            return jsonify({
+                "error": f"Failed to read cluster_logs table '{cluster_logs_table}': {error_msg}",
+                "table": cluster_logs_table,
+                "details": cluster_logs
+            }), 400
+        
+        job_run_logs = databricks_client.read_delta_table(
+            table_name=job_run_logs_table,
+            limit=limit,
+            warehouse_id=warehouse_id
+        )
+        
+        if job_run_logs.get("status") != "success":
+            error_msg = job_run_logs.get("error", "Unknown error")
+            logger.error(f"Failed to read job_run_logs table: {error_msg}")
+            return jsonify({
+                "error": f"Failed to read job_run_logs table '{job_run_logs_table}': {error_msg}",
+                "table": job_run_logs_table,
+                "details": job_run_logs
+            }), 400
+        
+        analysis = ai_agent.analyze_delta_logs(
+            cluster_events=cluster_events,
+            cluster_logs=cluster_logs,
+            job_run_logs=job_run_logs,
+            analysis_focus=analysis_focus
+        )
+        
+        if analysis.get("status") != "success":
+            return jsonify(analysis), 500
+        
+        pending = add_recommendations(analysis.get("recommendations", []))
+        
+        return jsonify({
+            "summary": analysis.get("summary", ""),
+            "recommendations": pending,
+            "tables": {
+                "cluster_events": cluster_events_table,
+                "cluster_logs": cluster_logs_table,
+                "job_run_logs": job_run_logs_table
+            },
+            "warehouse_id": warehouse_id
+        })
+    
+    except Exception as e:
+        logger.error(f"Error analyzing delta tables: {str(e)}", exc_info=True)
+        error_str = str(e)
+        
+        # Check for UC_NOT_ENABLED error
+        if "UC_NOT_ENABLED" in error_str or "Unity Catalog is not enabled" in error_str:
+            return jsonify({
+                "error": "Unity Catalog is not enabled on your cluster.",
+                "solution": "Use Hive metastore table names in format: 'database.table' (e.g., 'default.cluster_events')",
+                "help": "You can configure table names via environment variables: DELTA_CLUSTER_EVENTS_TABLE, DELTA_CLUSTER_LOGS_TABLE, DELTA_JOB_RUN_LOGS_TABLE",
+                "details": error_str
+            }), 400
+        
+        return jsonify({
+            "error": str(e),
+            "help": "Check that the table names exist and are in correct format. Use 'database.table' for Hive metastore."
+        }), 500
+
+
+@app.route("/api/approvals", methods=["GET"])
+def get_approvals():
+    """List recommendations by approval status."""
+    status = request.args.get("status")
+    return jsonify({
+        "recommendations": list_recommendations(status=status),
+        "status_filter": status
+    })
+
+
+@app.route("/api/approvals/<rec_id>/approve", methods=["POST"])
+def approve_recommendation(rec_id):
+    """Approve a recommendation."""
+    try:
+        updated = update_status(rec_id, "APPROVED")
+        if not updated:
+            logger.warning(f"Recommendation {rec_id} not found")
+            return jsonify({"success": False, "error": "Recommendation not found"}), 404
+        logger.info(f"Approved recommendation {rec_id}")
+        return jsonify({"success": True, "message": "Recommendation approved", "data": updated}), 200
+    except Exception as e:
+        logger.error(f"Error approving recommendation {rec_id}: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/approvals/<rec_id>/reject", methods=["POST"])
+def reject_recommendation(rec_id):
+    """Reject a recommendation."""
+    try:
+        updated = update_status(rec_id, "REJECTED")
+        if not updated:
+            logger.warning(f"Recommendation {rec_id} not found")
+            return jsonify({"success": False, "error": "Recommendation not found"}), 404
+        logger.info(f"Rejected recommendation {rec_id}")
+        return jsonify({"success": True, "message": "Recommendation rejected", "data": updated}), 200
+    except Exception as e:
+        logger.error(f"Error rejecting recommendation {rec_id}: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/approvals/<rec_id>/apply", methods=["POST"])
+def apply_recommendation(rec_id):
+    """Apply an approved recommendation using Databricks APIs."""
+    try:
+        if not databricks_client:
+            return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+        
+        rec = get_recommendation(rec_id)
+        if not rec:
+            return jsonify({"success": False, "error": "Recommendation not found"}), 404
+        
+        if rec.get("status") != "APPROVED":
+            return jsonify({"success": False, "error": f"Recommendation is not approved (current status: {rec.get('status')})"}), 400
+        
+        action = rec.get("action", {})
+        action_type = action.get("type")
+        target_id = action.get("target_id")
+        params = action.get("params", {})
+        
+        if not action_type or not target_id:
+            logger.warning(f"Recommendation {rec_id} has no actionable details. Action: {action}")
+            return jsonify({"success": False, "error": "Recommendation has no actionable details"}), 400
+        
+        logger.info(f"Applying recommendation {rec_id}: {action_type} on {target_id}")
+        
+        result = {"status": "error", "error": "Unsupported action type"}
+        if action_type == "terminate_cluster":
+            result = databricks_client.terminate_cluster(target_id)
+        elif action_type == "resize_cluster":
+            result = databricks_client.resize_cluster(
+                cluster_id=target_id,
+                num_workers=params.get("num_workers"),
+                autoscale=params.get("autoscale")
+            )
+        else:
+            logger.warning(f"Unsupported action type: {action_type}")
+        
+        if result.get("status") == "success":
+            updated = update_status(rec_id, "APPLIED")
+            logger.info(f"Successfully applied recommendation {rec_id}")
+            return jsonify({
+                "success": True,
+                "message": "Recommendation applied successfully",
+                "result": result,
+                "recommendation": updated
+            }), 200
+        
+        error_msg = result.get("error", "Unknown error")
+        update_status(rec_id, "FAILED", note=error_msg)
+        logger.error(f"Failed to apply recommendation {rec_id}: {error_msg}")
+        return jsonify({
+            "success": False,
+            "error": f"Failed to apply recommendation: {error_msg}",
+            "result": result,
+            "recommendation": rec
+        }), 400
+    
+    except Exception as e:
+        logger.error(f"Exception while applying recommendation {rec_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+
+@app.route("/api/cost/pricing", methods=["GET"])
+def get_pricing_tiers():
+    """Get all pricing tiers for different resource types."""
+    try:
+        return jsonify({
+            "success": True,
+            "pricing_tiers": cost_calculator.pricing_tiers,
+            "description": {
+                "jobs_compute_standard": "$0.15 per DBU-hour",
+                "jobs_compute_premium": "$0.22 per DBU-hour (average)",
+                "all_purpose_standard": "$0.40 per DBU-hour",
+                "all_purpose_premium": "$0.475 per DBU-hour (average)",
+                "serverless_sql": "$0.70 per DBU-hour",
+                "model_serving_cpu": "$0.08 per DBU-hour",
+                "model_serving_gpu": "$0.65 per DBU-hour"
+            }
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting pricing tiers: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/cost/cluster/<cluster_id>", methods=["GET"])
+def get_cluster_cost(cluster_id):
+    """Get cost analysis for a specific cluster."""
+    if not databricks_client:
+        return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+    
+    try:
+        hours_running = request.args.get("hours", 100, type=float)
+        
+        # Get cluster details
+        clusters = databricks_client.get_all_clusters()
+        cluster_info = next((c for c in clusters if c.get("cluster_id") == cluster_id), None)
+        
+        if not cluster_info:
+            return jsonify({"success": False, "error": "Cluster not found"}), 404
+        
+        cost_data = cost_calculator.calculate_cluster_cost(cluster_info, hours_running)
+        
+        logger.info(f"Calculated cost for cluster {cluster_id}: ${cost_data['total_cost']}")
+        
+        return jsonify({
+            "success": True,
+            "cost_analysis": cost_data
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error calculating cluster cost: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/cost/job/<job_id>", methods=["GET"])
+def get_job_cost(job_id):
+    """Get cost analysis for a specific job."""
+    if not databricks_client:
+        return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+    
+    try:
+        runs_per_month = request.args.get("runs", 4, type=int)
+        avg_runtime = request.args.get("runtime", 0.5, type=float)
+        
+        # Get job details
+        jobs = databricks_client.get_all_jobs()
+        job_info = next((j for j in jobs if j.get("job_id") == int(job_id)), None)
+        
+        if not job_info:
+            return jsonify({"success": False, "error": "Job not found"}), 404
+        
+        cost_data = cost_calculator.calculate_job_cost(job_info, runs_per_month, avg_runtime)
+        
+        logger.info(f"Calculated cost for job {job_id}: ${cost_data['monthly_cost']}/month")
+        
+        return jsonify({
+            "success": True,
+            "cost_analysis": cost_data
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error calculating job cost: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/cost/breakdown", methods=["GET"])
+def get_cost_breakdown():
+    """Get comprehensive cost breakdown for all resources."""
+    if not databricks_client:
+        return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+    
+    try:
+        # Fetch all resources
+        clusters = databricks_client.get_all_clusters()
+        jobs = databricks_client.get_all_jobs()
+        
+        resources = {
+            "clusters": clusters,
+            "jobs": jobs
+        }
+        
+        breakdown = cost_calculator.generate_cost_breakdown(resources)
+        
+        logger.info(f"Generated cost breakdown. Total cost: ${breakdown['total_cost']}")
+        
+        return jsonify({
+            "success": True,
+            "breakdown": breakdown,
+            "cluster_count": len(clusters),
+            "job_count": len(jobs)
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error generating cost breakdown: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/cost/recommendations/<cluster_id>", methods=["GET"])
+def get_cost_recommendations(cluster_id):
+    """Get cost savings recommendations for a cluster."""
+    if not databricks_client:
+        return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+    
+    try:
+        # Get cluster details
+        clusters = databricks_client.get_all_clusters()
+        cluster_info = next((c for c in clusters if c.get("cluster_id") == cluster_id), None)
+        
+        if not cluster_info:
+            return jsonify({"success": False, "error": "Cluster not found"}), 404
+        
+        recommendations = cost_calculator.get_cost_savings_recommendations(cluster_info)
+        
+        logger.info(f"Generated {len(recommendations)} cost recommendations for cluster {cluster_id}")
+        
+        return jsonify({
+            "success": True,
+            "recommendations": recommendations,
+            "cluster_info": {
+                "cluster_id": cluster_info.get("cluster_id"),
+                "cluster_name": cluster_info.get("cluster_name"),
+                "num_workers": cluster_info.get("num_workers")
+            }
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting cost recommendations: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/sql/execute", methods=["POST"])
+def execute_sql():
+    """Execute a SQL query on Databricks."""
+    if not databricks_client:
+        return jsonify({"error": "Databricks client not configured"}), 503
+    
+    try:
+        data = request.get_json()
+        query = data.get("query")
+        warehouse_id = data.get("warehouse_id")
+        
+        if not query:
+            return jsonify({"error": "query is required"}), 400
+        
+        logger.info(f"Executing SQL query")
+        result = databricks_client.execute_sql_query(
+            query=query,
+            warehouse_id=warehouse_id
+        )
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Error executing SQL: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    """Retrieve application logs with optional filtering.
+    
+    Query parameters:
+    - level: Filter by log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    - logger: Filter by logger name
+    - limit: Maximum number of logs to return (default: 100)
+    """
+    try:
+        level = request.args.get("level")
+        logger_name = request.args.get("logger")
+        limit = request.args.get("limit", 100, type=int)
+        
+        logs = log_manager.get_logs(
+            level=level,
+            limit=limit,
+            logger_name=logger_name
+        )
+        
+        return jsonify({
+            "success": True,
+            "count": len(logs),
+            "logs": logs
+        })
+    
+    except Exception as e:
+        logger.error(f"Error retrieving logs: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/logs/stats", methods=["GET"])
+def get_logs_stats():
+    """Get logging statistics."""
+    try:
+        stats = log_manager.get_stats()
+        return jsonify({
+            "success": True,
+            "stats": stats
+        })
+    
+    except Exception as e:
+        logger.error(f"Error retrieving log stats: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/logs/levels", methods=["GET"])
+def get_logs_by_level():
+    """Get count of logs by level."""
+    try:
+        level_counts = log_manager.get_logs_by_level()
+        return jsonify({
+            "success": True,
+            "data": level_counts
+        })
+    
+    except Exception as e:
+        logger.error(f"Error retrieving logs by level: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/logs/export", methods=["GET"])
+def export_logs():
+    """Export logs in specified format (json or csv)."""
+    try:
+        format = request.args.get("format", "json")
+        if format not in ["json", "csv"]:
+            return jsonify({
+                "success": False,
+                "error": "Format must be 'json' or 'csv'"
+            }), 400
+        
+        content = log_manager.export_logs(format=format)
+        
+        if format == "csv":
+            return content, 200, {"Content-Type": "text/csv"}
+        else:
+            return jsonify({
+                "success": True,
+                "data": content
+            })
+    
+    except Exception as e:
+        logger.error(f"Error exporting logs: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/logs/clear", methods=["POST"])
+def clear_logs():
+    """Clear all stored logs."""
+    try:
+        log_manager.clear_logs()
+        return jsonify({
+            "success": True,
+            "message": "All logs cleared"
+        })
+    
+    except Exception as e:
+        logger.error(f"Error clearing logs: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# Setup logging for the app
+setup_logging(logger)
+
+
+if __name__ == "__main__":
+    app.run(
+        host="0.0.0.0",
+        port=settings.backend_port,
+        debug=False
+    )
