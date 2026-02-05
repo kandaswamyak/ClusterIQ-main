@@ -220,39 +220,18 @@ function Recommendations() {
                     {groupedBySeverity.medium?.length || 0}
                   </div>
                 </div>
+                <div className="dxc-card bg-blue-50 border-blue-200">
+                  <div className="flex items-center mb-3">
+                    <AlertTriangle className="h-5 w-5 text-blue-600 mr-2" />
+                    <span className="font-semibold text-gray-900">Low Priority</span>
+                  </div>
+                  <div className="text-3xl font-bold text-blue-600">
+                    {groupedBySeverity.low?.length || 0}
+                  </div>
+                </div>
               </div>
             )
           })()}
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="dxc-card bg-red-50 border-red-200">
-              <div className="flex items-center mb-3">
-                <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
-                <span className="font-semibold text-gray-900">High Priority</span>
-              </div>
-              <div className="text-3xl font-bold text-red-600">
-                {groupedBySeverity.high?.length || 0}
-              </div>
-            </div>
-            <div className="dxc-card bg-yellow-50 border-yellow-200">
-              <div className="flex items-center mb-3">
-                <AlertTriangle className="h-5 w-5 text-yellow-600 mr-2" />
-                <span className="font-semibold text-gray-900">Medium Priority</span>
-              </div>
-              <div className="text-3xl font-bold text-yellow-600">
-                {groupedBySeverity.medium?.length || 0}
-              </div>
-            </div>
-            <div className="dxc-card bg-blue-50 border-blue-200">
-              <div className="flex items-center mb-3">
-                <AlertTriangle className="h-5 w-5 text-blue-600 mr-2" />
-                <span className="font-semibold text-gray-900">Low Priority</span>
-              </div>
-              <div className="text-3xl font-bold text-blue-600">
-                {groupedBySeverity.low?.length || 0}
-              </div>
-            </div>
-          </div>
 
           <div className="space-y-6">
             {Object.entries(groupedByType).map(([type, recs]) => (
@@ -374,17 +353,6 @@ function RecommendationCard({ recommendation }) {
           </div>
         )}
       </div>
-
-      {recommendation.implementation_steps && (
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Implementation Steps</h4>
-          <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
-            {recommendation.implementation_steps.map((step, idx) => (
-              <li key={idx}>{step}</li>
-            ))}
-          </ol>
-        </div>
-      )}
     </div>
   )
 }

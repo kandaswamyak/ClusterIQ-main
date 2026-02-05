@@ -242,6 +242,35 @@ class DatabricksClient:
             logger.error(f"Error fetching metrics for cluster {cluster_id}: {str(e)}")
             return {}
 
+    def get_cluster_info(self, cluster_id: str) -> Dict[str, Any]:
+        """Get detailed information about a cluster including auto-termination settings.
+        
+        Args:
+            cluster_id: Cluster ID
+            
+        Returns:
+            Dictionary with cluster information including autotermination_minutes
+        """
+        try:
+            url = f"{self.host}/api/2.1/clusters/get"
+            params = {"cluster_id": cluster_id}
+            
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            response.raise_for_status()
+            
+            cluster = response.json()
+            return {
+                "status": "success",
+                "cluster": cluster
+            }
+        except Exception as e:
+            logger.error(f"Error fetching cluster info for {cluster_id}: {str(e)}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "cluster_id": cluster_id
+            }
+
     def terminate_cluster(self, cluster_id: str) -> Dict[str, Any]:
         """Terminate a cluster using REST API.
         
@@ -279,6 +308,78 @@ class DatabricksClient:
             return {"status": "success", "cluster_id": cluster_id, "action": "started"}
         except Exception as e:
             logger.error(f"Error starting cluster {cluster_id}: {str(e)}", exc_info=True)
+            return {"status": "error", "error": str(e), "cluster_id": cluster_id}
+
+    def update_cluster_config(self, cluster_id: str, **kwargs) -> Dict[str, Any]:
+        """Update cluster configuration including auto-termination.
+        
+        Args:
+            cluster_id: Cluster ID
+            **kwargs: Configuration options (e.g., autotermination_minutes)
+            
+        Returns:
+            Result dictionary
+        """
+        try:
+            # First, get the current cluster configuration
+            cluster_info = self.get_cluster_info(cluster_id)
+            if cluster_info.get("status") != "success":
+                return {
+                    "status": "error",
+                    "error": f"Could not fetch cluster info: {cluster_info.get('error')}",
+                    "cluster_id": cluster_id
+                }
+            
+            # Get the cluster configuration
+            cluster = cluster_info.get("cluster", {})
+            
+            # Build the edit payload with required fields
+            url = f"{self.host}/api/2.1/clusters/edit"
+            payload = {
+                "cluster_id": cluster_id,
+                "cluster_name": cluster.get("cluster_name"),
+                "spark_version": cluster.get("spark_version"),
+                "node_type_id": cluster.get("node_type_id"),
+            }
+            
+            # Add autoscale or num_workers
+            if "autoscale" in cluster:
+                payload["autoscale"] = cluster["autoscale"]
+            elif "num_workers" in cluster:
+                payload["num_workers"] = cluster["num_workers"]
+            
+            # Add other important fields if present
+            if "driver_node_type_id" in cluster:
+                payload["driver_node_type_id"] = cluster["driver_node_type_id"]
+            if "spark_conf" in cluster:
+                payload["spark_conf"] = cluster["spark_conf"]
+            if "aws_attributes" in cluster:
+                payload["aws_attributes"] = cluster["aws_attributes"]
+            if "azure_attributes" in cluster:
+                payload["azure_attributes"] = cluster["azure_attributes"]
+            if "spark_env_vars" in cluster:
+                payload["spark_env_vars"] = cluster["spark_env_vars"]
+            if "custom_tags" in cluster:
+                payload["custom_tags"] = cluster["custom_tags"]
+            if "init_scripts" in cluster:
+                payload["init_scripts"] = cluster["init_scripts"]
+            
+            # Update with new values from kwargs
+            payload.update(kwargs)
+            
+            logger.info(f"Updating cluster {cluster_id} with payload: {payload}")
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            logger.info(f"Successfully updated cluster {cluster_id} config: {kwargs}")
+            return {
+                "status": "success",
+                "cluster_id": cluster_id,
+                "action": "config_updated",
+                "config": kwargs
+            }
+        except Exception as e:
+            logger.error(f"Error updating cluster {cluster_id} config: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e), "cluster_id": cluster_id}
 
     def resize_cluster(
@@ -812,3 +913,5 @@ class DatabricksClient:
                 "error": error_msg,
                 "table_name": table_name
             }
+
+

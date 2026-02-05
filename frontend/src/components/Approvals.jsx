@@ -15,6 +15,7 @@ const STATUS_TABS = [
   { value: 'APPROVED', label: 'Approved', icon: '✓' },
   { value: 'REJECTED', label: 'Rejected', icon: '✕' },
   { value: 'APPLIED', label: 'Applied', icon: '▶' },
+  { value: 'FAILED', label: 'Failed', icon: '✗' },
 ]
 
 function Approvals() {
@@ -45,6 +46,7 @@ function Approvals() {
       APPROVED: 0,
       REJECTED: 0,
       APPLIED: 0,
+      FAILED: 0,
     }
     allRecs.forEach((rec) => {
       const status = rec.status || 'PENDING'
@@ -159,6 +161,20 @@ function Approvals() {
                   <div className="text-xs text-gray-500 mt-2">
                     Resource: {rec.resource_type || 'N/A'} {rec.resource_id ? `• ${rec.resource_id}` : ''}
                   </div>
+                  {rec.estimated_savings && (
+                    <div className="text-xs text-green-600 mt-1 font-medium">
+                      💰 Estimated Savings: {rec.estimated_savings}
+                    </div>
+                  )}
+                  {rec.status_note && (
+                    <div className={`text-xs mt-2 p-2 rounded ${
+                      rec.status === 'FAILED' ? 'bg-red-50 text-red-600' :
+                      rec.status === 'APPLIED' ? 'bg-green-50 text-green-600' :
+                      'bg-yellow-50 text-yellow-600'
+                    }`}>
+                      📝 {rec.status_note}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">

@@ -37,13 +37,13 @@ class ClusterIQAgent:
                 azure_deployment=azure_deployment_name,
                 openai_api_version="2024-02-15-preview",
                 api_key=azure_api_key,
-                temperature=0,
+                temperature=1,
                 model=azure_deployment_name,  # Use deployment name as model
             )
             logger.info(f"Using Azure OpenAI - Endpoint: {endpoint}, Deployment: {azure_deployment_name}")
         elif api_key:
             self.llm = ChatOpenAI(
-                temperature=0,
+                temperature=1,
                 model=model,
                 api_key=api_key,
             )

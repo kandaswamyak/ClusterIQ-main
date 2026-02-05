@@ -47,10 +47,6 @@ function Dashboard() {
     }
   }
 
-  const highSeverityCount = recommendations?.recommendations?.filter(
-    (r) => r.severity === 'high'
-  ).length || 0
-
   const estimatedSavings = recommendations?.recommendations?.reduce((sum, r) => {
     const savings = parseFloat(r.estimated_savings?.replace(/[^0-9.]/g, '') || 0)
     return sum + savings
@@ -79,6 +75,17 @@ function Dashboard() {
           <p className="text-sm text-gray-700">
             <span className="font-medium">Last analysis:</span> {lastAnalysis}
           </p>
+        </div>
+      )}
+
+      {recommendations && (
+        <div className="dxc-card">
+          <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
+            <TrendingDown className="h-5 w-5 mr-2 text-blue-600" />
+            Total Recommendations
+          </h2>
+          <div className="text-4xl font-bold text-blue-600">{recommendations.recommendations?.length || 0}</div>
+          <p className="text-gray-600 mt-2 text-sm">AI-powered optimization suggestions</p>
         </div>
       )}
 
@@ -208,26 +215,15 @@ function Dashboard() {
       )}
 
       {recommendations && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="dxc-card">
-            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
-              <TrendingDown className="h-5 w-5 mr-2 text-red-600" />
-              High Priority Issues
-            </h2>
-            <div className="text-4xl font-bold text-red-600">{highSeverityCount}</div>
-            <p className="text-gray-600 mt-2 text-sm">Issues requiring immediate attention</p>
+        <div className="dxc-card">
+          <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
+            <TrendingDown className="h-5 w-5 mr-2 text-green-600" />
+            Estimated Savings
+          </h2>
+          <div className="text-4xl font-bold text-green-600">
+            ${estimatedSavings.toFixed(2)}
           </div>
-
-          <div className="dxc-card">
-            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
-              <TrendingDown className="h-5 w-5 mr-2 text-green-600" />
-              Estimated Savings
-            </h2>
-            <div className="text-4xl font-bold text-green-600">
-              ${estimatedSavings.toFixed(2)}
-            </div>
-            <p className="text-gray-600 mt-2 text-sm">Potential monthly cost savings</p>
-          </div>
+          <p className="text-gray-600 mt-2 text-sm">Potential monthly cost savings</p>
         </div>
       )}
 
@@ -262,47 +258,6 @@ function Dashboard() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Logs Summary */}
-      {!logsStatsLoading && logsStats?.stats && (
-        <div className="dxc-card">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Application Logs Summary</h2>
-            <a href="/logs" className="text-primary-600 hover:text-primary-700 text-sm font-medium">
-              View All →
-            </a>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div className="bg-blue-50 rounded p-3 text-center border border-blue-200">
-              <p className="text-xs text-gray-600 font-medium">Total Logs</p>
-              <p className="text-2xl font-bold text-blue-600">{logsStats.stats.total_logs}</p>
-            </div>
-            <div className="bg-yellow-50 rounded p-3 text-center border border-yellow-200">
-              <p className="text-xs text-gray-600 font-medium">Warnings</p>
-              <p className="text-2xl font-bold text-yellow-600">{logsStats.stats.logs_by_level?.WARNING || 0}</p>
-            </div>
-            <div className="bg-red-50 rounded p-3 text-center border border-red-200">
-              <p className="text-xs text-gray-600 font-medium">Errors</p>
-              <p className="text-2xl font-bold text-red-600">{logsStats.stats.logs_by_level?.ERROR || 0}</p>
-            </div>
-            <div className="bg-green-50 rounded p-3 text-center border border-green-200">
-              <p className="text-xs text-gray-600 font-medium">Capacity</p>
-              <p className="text-2xl font-bold text-green-600">{logsStats.stats.capacity_usage}</p>
-            </div>
-          </div>
-          {(logsStats.stats.logs_by_level?.ERROR > 0 || logsStats.stats.logs_by_level?.CRITICAL > 0) && (
-            <div className="bg-red-50 border-l-4 border-red-500 rounded-r p-3 flex items-start gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-red-900">Active Issues Detected</p>
-                <p className="text-xs text-red-700 mt-1">
-                  {logsStats.stats.logs_by_level?.ERROR || 0} error(s) and {logsStats.stats.logs_by_level?.CRITICAL || 0} critical issue(s) found
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>

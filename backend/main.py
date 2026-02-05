@@ -221,6 +221,68 @@ def terminate_cluster(cluster_id):
         }), 500
 
 
+def generate_autotermination_recommendations(clusters):
+    """Generate recommendations for clusters without auto-termination enabled.
+    
+    Args:
+        clusters: List of cluster dictionaries
+        
+    Returns:
+        List of recommendation dictionaries
+    """
+    recommendations = []
+    
+    for cluster in clusters:
+        cluster_id = cluster.get("cluster_id")
+        cluster_name = cluster.get("cluster_name", "Unknown")
+        
+        # Skip job clusters (they auto-terminate by design)
+        if "job-" in cluster_name.lower():
+            continue
+        
+        try:
+            # Get detailed cluster info to check auto-termination
+            cluster_info = databricks_client.get_cluster_info(cluster_id)
+            if cluster_info.get("status") == "success":
+                cluster_details = cluster_info.get("cluster", {})
+                autotermination_minutes = cluster_details.get("autotermination_minutes", 0)
+                
+                # If auto-termination is not set or is 0, create a recommendation
+                if autotermination_minutes == 0:
+                    rec_id = f"rec_auto_{cluster_id[:8]}"
+                    
+                    recommendations.append({
+                        "id": rec_id,
+                        "title": f"Enable auto-termination for {cluster_name}",
+                        "description": f"Cluster '{cluster_name}' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+                        "type": "cost_optimization",
+                        "severity": "high" if cluster.get("state") == "RUNNING" else "medium",
+                        "resource_type": "cluster",
+                        "resource_id": cluster_name,
+                        "estimated_savings": "30-50% idle cluster cost",
+                        "risk": "low",
+                        "action": {
+                            "type": "enable_autotermination",
+                            "target_id": cluster_id,
+                            "params": {
+                                "autotermination_minutes": 15
+                            }
+                        },
+                        "status": "PENDING",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "updated_at": datetime.utcnow().isoformat(),
+                        "status_note": "Auto-detected: No auto-termination configured"
+                    })
+                    
+                    logger.info(f"Generated auto-termination recommendation for cluster: {cluster_name}")
+        
+        except Exception as e:
+            logger.warning(f"Error checking auto-termination for cluster {cluster_name}: {e}")
+            continue
+    
+    return recommendations
+
+
 @app.route("/api/analyze", methods=["POST"])
 def analyze_jobs_and_clusters():
     """Analyze jobs and clusters to identify cost leaks."""
@@ -228,11 +290,46 @@ def analyze_jobs_and_clusters():
         return jsonify({"error": "Databricks client not configured"}), 503
     
     try:
-        # Fetch data
-        logger.info("Fetching jobs and clusters...")
-        jobs = databricks_client.get_all_jobs()
-        clusters = databricks_client.get_all_clusters()
-        logger.info(f"Fetched: {len(jobs)} jobs, {len(clusters)} clusters")
+        # Fetch data with timeout protection
+        import threading
+        
+        fetch_results = {"jobs": [], "clusters": [], "error": None}
+        
+        def fetch_data():
+            try:
+                logger.info("Fetching jobs and clusters...")
+                fetch_results["jobs"] = databricks_client.get_all_jobs()
+                fetch_results["clusters"] = databricks_client.get_all_clusters()
+                logger.info(f"Fetched: {len(fetch_results['jobs'])} jobs, {len(fetch_results['clusters'])} clusters")
+            except Exception as e:
+                logger.error(f"Error fetching data: {str(e)}")
+                fetch_results["error"] = str(e)
+        
+        # Run fetch in a thread with timeout
+        fetch_thread = threading.Thread(target=fetch_data, daemon=True)
+        fetch_thread.start()
+        fetch_thread.join(timeout=20)  # 20-second timeout for fetching data
+        
+        if fetch_results["error"]:
+            raise Exception(f"Failed to fetch Databricks data: {fetch_results['error']}")
+        
+        if not fetch_results["jobs"] and not fetch_results["clusters"]:
+            if fetch_thread.is_alive():
+                logger.warning("Data fetch timed out after 20 seconds, returning empty analysis")
+                return jsonify({
+                    "recommendations": [],
+                    "summary": {
+                        "total_jobs": 0,
+                        "total_clusters": 0,
+                        "recommendations_count": 0,
+                        "analysis_type": "timeout",
+                        "analysis_summary": "Analysis timed out. Please check your Databricks connection.",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                })
+        
+        jobs = fetch_results["jobs"]
+        clusters = fetch_results["clusters"]
         
         recommendations = []
         analysis_type = "rule-based"
@@ -241,7 +338,7 @@ def analyze_jobs_and_clusters():
             "Rule-based analysis is enabled."
         )
         
-        # Always start with rule-based analysis
+        # Always start with rule-based analysis (faster)
         logger.info("Performing rule-based analysis on clusters and jobs...")
         try:
             # Import the basic analysis function
@@ -299,41 +396,48 @@ def analyze_jobs_and_clusters():
                         "risk": "Low",
                     })
         
-        # Try AI analysis if available (enhances the recommendations)
-        if ai_agent:
+        # Try optional AI analysis (with tight timeout, non-blocking)
+        if ai_agent and recommendations:  # Only do AI if we have base recommendations
             try:
-                logger.info("Attempting AI-enhanced analysis...")
-                # Fetch runs for each job (limit to recent runs)
-                job_runs = {}
-                for job in jobs[:10]:  # Limit to first 10 jobs for performance
-                    job_id = job.get("job_id")
-                    if job_id:
-                        try:
-                            runs = databricks_client.get_job_runs(job_id=job_id, limit=10)
-                            job_runs[job_id] = runs
-                        except Exception as run_error:
-                            logger.warning(f"Could not fetch runs for job {job_id}: {str(run_error)}")
+                logger.info("Attempting optional AI-enhanced analysis (10-second timeout)...")
+                ai_results = {"recommendations": None, "summary": None}
                 
-                # Perform AI analysis
-                ai_recommendations = ai_agent.analyze_jobs_and_clusters(
-                    jobs=jobs,
-                    clusters=clusters,
-                    job_runs=job_runs
-                )
+                def run_ai_analysis():
+                    """Run AI analysis in a separate thread."""
+                    try:
+                        # Do NOT fetch job runs - too slow
+                        # Just enhance existing recommendations with AI insights
+                        ai_recs = ai_agent.analyze_jobs_and_clusters(
+                            jobs=jobs[:5],  # Limit to first 5 jobs
+                            clusters=clusters[:5],  # Limit to first 5 clusters
+                            job_runs={}  # Empty job runs to speed up analysis
+                        )
+                        
+                        if ai_recs and len(ai_recs) > 0:
+                            ai_results["recommendations"] = ai_recs
+                            ai_results["summary"] = ai_agent.generate_summary(jobs=jobs, clusters=clusters)
+                    except Exception as e:
+                        logger.debug(f"AI analysis detailed error: {str(e)}")
                 
-                # If AI analysis succeeds and returns recommendations, use it
-                if ai_recommendations and len(ai_recommendations) > 0:
-                    recommendations = ai_recommendations
+                # Run AI analysis in a separate thread with tight timeout
+                ai_thread = threading.Thread(target=run_ai_analysis, daemon=True)
+                ai_thread.start()
+                ai_thread.join(timeout=10)  # 10-second max timeout for AI
+                
+                if ai_results["recommendations"] and len(ai_results["recommendations"]) > 0:
+                    recommendations = ai_results["recommendations"]
                     analysis_type = "ai"
+                    analysis_summary = ai_results["summary"]
                     logger.info(f"AI analysis completed: {len(recommendations)} recommendations")
-                    analysis_summary = ai_agent.generate_summary(jobs=jobs, clusters=clusters)
+                elif ai_thread.is_alive():
+                    logger.info("AI analysis skipped (timeout), using rule-based results")
                 else:
                     logger.info("AI analysis returned no recommendations, using rule-based results")
             except Exception as ai_error:
-                logger.warning(f"AI analysis failed, using rule-based results: {str(ai_error)}")
+                logger.info(f"AI analysis optional enhancement skipped: {str(ai_error)}")
                 # Continue with rule-based recommendations
         else:
-            logger.info("AI agent not available, using rule-based analysis")
+            logger.info("AI agent not available or no base recommendations, using only rule-based analysis")
         
         # Ensure we have at least some recommendations
         if not recommendations:
@@ -440,9 +544,18 @@ def get_stats():
         return jsonify({"error": "Databricks client not configured"}), 503
     
     try:
-        # Get basic resources
-        jobs = databricks_client.get_all_jobs()
-        clusters = databricks_client.get_all_clusters()
+        # Get basic resources with timeout protection
+        try:
+            jobs = databricks_client.get_all_jobs()
+        except Exception as e:
+            logger.warning(f"Error getting jobs: {e}")
+            jobs = []
+            
+        try:
+            clusters = databricks_client.get_all_clusters()
+        except Exception as e:
+            logger.warning(f"Error getting clusters: {e}")
+            clusters = []
         
         running_clusters = [c for c in clusters if c.get("state") == "RUNNING"]
         
@@ -504,9 +617,12 @@ def get_stats():
             
         try:
             feature_store = databricks_client.get_feature_store_tables()
+            logger.info(f"Successfully fetched {len(feature_store)} feature store tables")
         except Exception as e:
             logger.warning(f"Error getting feature store tables: {e}")
             feature_store = []
+        
+        logger.info(f"Stats: {len(jobs)} jobs, {len(clusters)} clusters, {len(running_clusters)} running")
         
         return jsonify({
             # Basic stats
@@ -824,7 +940,7 @@ def analyze_delta_tables():
         analysis_focus = data.get("analysis_focus", "cost")
         warehouse_id = data.get("warehouse_id")
         
-        # If no warehouse_id provided, try to get one
+        # If no warehouse_id provided, try to get one (but don't fail if unavailable)
         if not warehouse_id:
             try:
                 warehouses = databricks_client.get_sql_warehouses()
@@ -832,71 +948,101 @@ def analyze_delta_tables():
                     warehouse_id = warehouses[0].get("id")
                     logger.info(f"Using SQL warehouse: {warehouse_id}")
                 else:
-                    return jsonify({
-                        "error": "No SQL warehouses available. Please create a SQL warehouse or provide a warehouse_id.",
-                        "help": "Create a SQL warehouse in Databricks and pass warehouse_id in request body."
-                    }), 400
+                    logger.warning("No SQL warehouses available. Analysis will use sample data.")
+                    warehouse_id = None
             except Exception as e:
-                logger.warning(f"Could not fetch warehouses: {str(e)}")
-                return jsonify({
-                    "error": "Could not connect to any SQL warehouses. Please provide a warehouse_id.",
-                    "help": "Pass warehouse_id in request body: {\"warehouse_id\": \"<warehouse-id>\"}"
-                }), 400
+                logger.warning(f"Could not fetch warehouses: {str(e)}. Analysis will use sample data.")
+                warehouse_id = None
         
         logger.info(f"Analyzing Delta tables: {cluster_events_table}, {cluster_logs_table}, {job_run_logs_table}")
-        logger.info(f"Using warehouse: {warehouse_id}")
+        if warehouse_id:
+            logger.info(f"Using warehouse: {warehouse_id}")
+        else:
+            logger.info("No warehouse available - using sample recommendations")
         
-        cluster_events = databricks_client.read_delta_table(
-            table_name=cluster_events_table,
-            limit=limit,
-            warehouse_id=warehouse_id
-        )
+        # Try to read Delta tables if warehouse is available
+        cluster_events = {}
+        cluster_logs = {}
+        job_run_logs = {}
         
-        if cluster_events.get("status") != "success":
-            error_msg = cluster_events.get("error", "Unknown error")
-            logger.error(f"Failed to read cluster_events table: {error_msg}")
-            return jsonify({
-                "error": f"Failed to read cluster_events table '{cluster_events_table}': {error_msg}",
-                "table": cluster_events_table,
-                "details": cluster_events
-            }), 400
-        
-        cluster_logs = databricks_client.read_delta_table(
-            table_name=cluster_logs_table,
-            limit=limit,
-            warehouse_id=warehouse_id
-        )
-        
-        if cluster_logs.get("status") != "success":
-            error_msg = cluster_logs.get("error", "Unknown error")
-            logger.error(f"Failed to read cluster_logs table: {error_msg}")
-            return jsonify({
-                "error": f"Failed to read cluster_logs table '{cluster_logs_table}': {error_msg}",
-                "table": cluster_logs_table,
-                "details": cluster_logs
-            }), 400
-        
-        job_run_logs = databricks_client.read_delta_table(
-            table_name=job_run_logs_table,
-            limit=limit,
-            warehouse_id=warehouse_id
-        )
-        
-        if job_run_logs.get("status") != "success":
-            error_msg = job_run_logs.get("error", "Unknown error")
-            logger.error(f"Failed to read job_run_logs table: {error_msg}")
-            return jsonify({
-                "error": f"Failed to read job_run_logs table '{job_run_logs_table}': {error_msg}",
-                "table": job_run_logs_table,
-                "details": job_run_logs
-            }), 400
-        
-        analysis = ai_agent.analyze_delta_logs(
-            cluster_events=cluster_events,
-            cluster_logs=cluster_logs,
-            job_run_logs=job_run_logs,
-            analysis_focus=analysis_focus
-        )
+        if warehouse_id:
+            cluster_events = databricks_client.read_delta_table(
+                table_name=cluster_events_table,
+                limit=limit,
+                warehouse_id=warehouse_id
+            )
+            
+            if cluster_events.get("status") != "success":
+                error_msg = cluster_events.get("error", "Unknown error")
+                logger.error(f"Failed to read cluster_events table: {error_msg}")
+                return jsonify({
+                    "error": f"Failed to read cluster_events table '{cluster_events_table}': {error_msg}",
+                    "table": cluster_events_table,
+                    "details": cluster_events
+                }), 400
+            
+            cluster_logs = databricks_client.read_delta_table(
+                table_name=cluster_logs_table,
+                limit=limit,
+                warehouse_id=warehouse_id
+            )
+            
+            if cluster_logs.get("status") != "success":
+                error_msg = cluster_logs.get("error", "Unknown error")
+                logger.error(f"Failed to read cluster_logs table: {error_msg}")
+                return jsonify({
+                    "error": f"Failed to read cluster_logs table '{cluster_logs_table}': {error_msg}",
+                    "table": cluster_logs_table,
+                    "details": cluster_logs
+                }), 400
+            
+            job_run_logs = databricks_client.read_delta_table(
+                table_name=job_run_logs_table,
+                limit=limit,
+                warehouse_id=warehouse_id
+            )
+            
+            if job_run_logs.get("status") != "success":
+                error_msg = job_run_logs.get("error", "Unknown error")
+                logger.error(f"Failed to read job_run_logs table: {error_msg}")
+                return jsonify({
+                    "error": f"Failed to read job_run_logs table '{job_run_logs_table}': {error_msg}",
+                    "table": job_run_logs_table,
+                    "details": job_run_logs
+                }), 400
+            
+            # Analyze with actual data
+            analysis = ai_agent.analyze_delta_logs(
+                cluster_events=cluster_events,
+                cluster_logs=cluster_logs,
+                job_run_logs=job_run_logs,
+                analysis_focus=analysis_focus
+            )
+        else:
+            # No warehouse available - generate sample recommendations
+            logger.info("No warehouse available - generating sample recommendations")
+            analysis = {
+                "status": "success",
+                "summary": "Sample recommendations generated (no warehouse available for live analysis)",
+                "recommendations": [
+                    {
+                        "type": "COST_OPTIMIZATION",
+                        "severity": "HIGH",
+                        "title": "Right-size cluster memory",
+                        "description": "Cluster cluster_1 is oversized for workload",
+                        "estimated_savings": 500,
+                        "action": "Reduce cluster memory configuration by 50%"
+                    },
+                    {
+                        "type": "PERFORMANCE",
+                        "severity": "MEDIUM",
+                        "title": "Optimize job scheduling",
+                        "description": "Job execution shows frequent retries",
+                        "estimated_savings": 300,
+                        "action": "Increase timeout values and implement exponential backoff"
+                    }
+                ]
+            }
         
         if analysis.get("status") != "success":
             return jsonify(analysis), 500
@@ -911,7 +1057,8 @@ def analyze_delta_tables():
                 "cluster_logs": cluster_logs_table,
                 "job_run_logs": job_run_logs_table
             },
-            "warehouse_id": warehouse_id
+            "warehouse_id": warehouse_id,
+            "mode": "live" if warehouse_id else "sample"
         })
     
     except Exception as e:
@@ -999,16 +1146,38 @@ def apply_recommendation(rec_id):
         logger.info(f"Applying recommendation {rec_id}: {action_type} on {target_id}")
         
         result = {"status": "error", "error": "Unsupported action type"}
+        
         if action_type == "terminate_cluster":
+            # Check if cluster exists first
+            clusters = databricks_client.get_all_clusters()
+            cluster_found = any(c.get("cluster_id") == target_id or c.get("cluster_name") == target_id for c in clusters)
+            
+            if not cluster_found:
+                error_msg = f"Cluster '{target_id}' not found in workspace. It may already be terminated or does not exist."
+                logger.warning(f"Cluster {target_id} not found. Available clusters: {[c.get('cluster_name') for c in clusters]}")
+                update_status(rec_id, "FAILED", note=error_msg)
+                return jsonify({
+                    "success": False,
+                    "error": error_msg,
+                    "result": {"status": "not_found", "message": f"Cluster {target_id} not found"},
+                    "recommendation": rec
+                }), 404
+            
             result = databricks_client.terminate_cluster(target_id)
+        
         elif action_type == "resize_cluster":
             result = databricks_client.resize_cluster(
                 cluster_id=target_id,
                 num_workers=params.get("num_workers"),
                 autoscale=params.get("autoscale")
             )
-        else:
-            logger.warning(f"Unsupported action type: {action_type}")
+        elif action_type == "enable_autotermination":
+            # Enable auto-termination on a cluster
+            autotermination_minutes = params.get("autotermination_minutes", 15)
+            result = databricks_client.update_cluster_config(
+                cluster_id=target_id,
+                autotermination_minutes=autotermination_minutes
+            )
         
         if result.get("status") == "success":
             updated = update_status(rec_id, "APPLIED")
@@ -1032,6 +1201,7 @@ def apply_recommendation(rec_id):
     
     except Exception as e:
         logger.error(f"Exception while applying recommendation {rec_id}: {str(e)}", exc_info=True)
+        update_status(rec_id, "FAILED", note=str(e))
         return jsonify({
             "success": False,
             "error": f"Server error: {str(e)}"

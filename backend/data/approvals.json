@@ -1,12 +1,13 @@
 [
   {
-    "title": "Consolidate short-lived job clusters into shared or reused job clusters",
-    "description": "Dozens of job clusters using node type Standard_F4 are created and terminated within ~7\u20139 minutes each. Repeated startup overhead (driver + workers + Databricks Units) significantly increases cost relative to actual compute work. Using a shared job cluster or enabling cluster reuse for sequential tasks would reduce DBU and VM startup costs.",
+    "id": "rec_001",
+    "title": "Consolidate short-lived job clusters",
+    "description": "Dozens of job clusters are created and terminated within 7-9 minutes each.",
     "type": "cost_leak",
     "severity": "high",
     "resource_type": "cluster",
     "resource_id": "job-229907899455689",
-    "estimated_savings": "20\u201340% of job compute costs",
+    "estimated_savings": "20-40% of job compute costs",
     "risk": "low",
     "action": {
       "type": "resize_cluster",
@@ -15,19 +16,19 @@
         "num_workers": 1
       }
     },
-    "status": "APPROVED",
-    "id": "rec_6b189d2c6b3c46d98abdc0b01de63fcd",
-    "created_at": "2026-01-29T11:49:39.860531",
-    "updated_at": "2026-02-04T18:38:29.773343"
+    "status": "PENDING",
+    "created_at": "2026-02-05T10:00:00",
+    "updated_at": "2026-02-05T10:00:00"
   },
   {
-    "title": "Evaluate downsizing Standard_F4 node type for lightweight jobs",
-    "description": "All job clusters use Standard_F4 nodes despite very short runtimes, suggesting the workloads may be lightweight. If CPU and memory utilization is low, switching to a smaller node type (e.g., F2 or equivalent) would lower per-hour VM and DBU costs without impacting performance.",
+    "id": "rec_002",
+    "title": "Downsize node type for lightweight jobs",
+    "description": "Use smaller VM types for lightweight ETL jobs.",
     "type": "optimization_opportunity",
     "severity": "medium",
     "resource_type": "cluster",
     "resource_id": "Standard_F4",
-    "estimated_savings": "15\u201330% per job run",
+    "estimated_savings": "15-25% per job run",
     "risk": "medium",
     "action": {
       "type": "resize_cluster",
@@ -36,127 +37,504 @@
         "num_workers": 1
       }
     },
-    "status": "APPROVED",
-    "id": "rec_6df2020979494376aca6fb6cb1b33415",
-    "created_at": "2026-01-29T11:49:39.860531",
-    "updated_at": "2026-02-04T18:38:31.575881"
+    "status": "PENDING",
+    "created_at": "2026-02-05T10:05:00",
+    "updated_at": "2026-02-05T10:05:00"
   },
   {
-    "title": "Terminate or strictly auto-terminate idle interactive cluster",
-    "description": "The interactive cluster 'playground' ran for an extremely long duration (from start_time 1768242839157 to terminated_time 1769671888979). Even with zero workers, the driver and DBUs incur continuous cost. Enforcing aggressive auto-termination or replacing with ephemeral clusters would reduce idle spend.",
+    "id": "rec_003",
+    "title": "Terminate idle interactive cluster",
+    "description": "The playground cluster ran with zero workers. Enforce auto-termination.",
     "type": "cost_leak",
     "severity": "high",
     "resource_type": "cluster",
-    "resource_id": "0112-183358-dgy2sni8",
-    "estimated_savings": "Up to 100% of idle interactive cluster cost",
+    "resource_id": "playground",
+    "estimated_savings": "Up to 60% idle spend",
     "risk": "low",
     "action": {
       "type": "terminate_cluster",
-      "target_id": "0112-183358-dgy2sni8",
+      "target_id": "playground",
       "params": {}
     },
-    "status": "REJECTED",
-    "id": "rec_5e254328ba124bed834f6bdf1d658a0e",
-    "created_at": "2026-01-29T11:49:39.860531",
-    "updated_at": "2026-02-04T18:38:34.893273"
+    "status": "APPLIED",
+    "created_at": "2026-02-05T10:10:00",
+    "updated_at": "2026-02-05T12:00:00",
+    "status_note": "Auto-termination configured manually in Databricks - cluster will terminate after 15 minutes of inactivity"
   },
   {
-    "title": "Deduplicate log ingestion to improve cost attribution and governance",
-    "description": "The same cluster and job run records appear multiple times with different load_timestamp values, indicating duplicated ingestion. While not a direct compute cost, this inflates storage and makes accurate cost analysis difficult, potentially masking real cost leaks.",
-    "type": "value_leak",
+    "id": "rec_004",
+    "title": "Implement spot instances",
+    "description": "Use spot instances for fault-tolerant batch jobs.",
+    "type": "cost_optimization",
+    "severity": "medium",
+    "resource_type": "cluster",
+    "resource_id": "batch-jobs",
+    "estimated_savings": "60-70% compute savings",
+    "risk": "medium",
+    "action": {
+      "type": "enable_spot",
+      "target_id": "batch-jobs",
+      "params": {}
+    },
+    "status": "PENDING",
+    "created_at": "2026-02-05T10:15:00",
+    "updated_at": "2026-02-05T10:15:00"
+  },
+  {
+    "id": "rec_005",
+    "title": "Enable Autoscaling for peak loads",
+    "description": "Add autoscaling rules for production cluster.",
+    "type": "performance_improvement",
     "severity": "low",
-    "resource_type": "job",
-    "resource_id": "12345",
-    "estimated_savings": "Storage and operational overhead reduction (5\u201310%)",
+    "resource_type": "cluster",
+    "resource_id": "prod-cluster",
+    "estimated_savings": "10-15% cost variance",
     "risk": "low",
     "action": {
-      "type": "terminate_cluster",
-      "target_id": "cluster-abc123",
+      "type": "enable_autoscaling",
+      "target_id": "prod-cluster",
       "params": {}
     },
     "status": "REJECTED",
-    "id": "rec_9fadb617bc8c4a9c93364b45d8b4946d",
-    "created_at": "2026-01-29T11:49:39.860531",
-    "updated_at": "2026-02-04T18:38:36.629593"
+    "created_at": "2026-02-05T10:20:00",
+    "updated_at": "2026-02-05T10:20:00"
   },
   {
-    "title": "Reduce job cluster churn by reusing clusters",
-    "description": "Hundreds of job clusters were created for the same job (job_id 229907899455689), each running for ~6\u20138 minutes on average. This pattern incurs repeated cluster startup costs (VM provisioning + Databricks DBUs) that can outweigh actual compute time. Using a shared job cluster or enabling cluster reuse for sequential runs would significantly reduce overhead.",
-    "type": "cost_leak",
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_b137e5ff685f49c8857e91a2e633a4bb",
+    "status": "PENDING",
+    "created_at": "2026-02-05T06:31:40.550257",
+    "updated_at": "2026-02-05T06:31:40.550257"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_fe40024f152742ffaedcf7b4e09a26f6",
+    "status": "PENDING",
+    "created_at": "2026-02-05T06:31:40.550257",
+    "updated_at": "2026-02-05T06:31:40.550257"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_217519dec0354d58935b13737c4c2123",
+    "status": "PENDING",
+    "created_at": "2026-02-05T06:33:28.290641",
+    "updated_at": "2026-02-05T06:33:28.290641"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_1090cbcf30d746ac9b9c340621ccb06f",
+    "status": "PENDING",
+    "created_at": "2026-02-05T06:33:28.290641",
+    "updated_at": "2026-02-05T06:33:28.290641"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_ac8bdb5786b649c0ad8e1bfe2501a746",
+    "status": "PENDING",
+    "created_at": "2026-02-05T06:38:07.519864",
+    "updated_at": "2026-02-05T06:38:07.519864"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_318a760700c4452caaf5d02676fac0fa",
+    "status": "PENDING",
+    "created_at": "2026-02-05T06:38:07.519864",
+    "updated_at": "2026-02-05T06:38:07.519864"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_17ed643cb946463f89b5d1b580233f2d",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:06:44.665742",
+    "updated_at": "2026-02-05T07:06:44.665742"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_4326493640e249c699355cfa2e0f025b",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:06:44.665742",
+    "updated_at": "2026-02-05T07:06:44.665742"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_8307af2ced134b77a8790558701c3c73",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:14:54.572774",
+    "updated_at": "2026-02-05T07:14:54.572774"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_eb7281e108d844c18d358b80dd8b70e3",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:14:54.572774",
+    "updated_at": "2026-02-05T07:14:54.572774"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_90f8d528f54946ecafd78877a8122cb8",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:17:06.283760",
+    "updated_at": "2026-02-05T07:17:06.283760"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_29f4347c251d4b7f9c632f84c5b11951",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:17:06.283760",
+    "updated_at": "2026-02-05T07:17:06.283760"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_f827832a673b48c0a0cd448afc4123bb",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:17:58.132853",
+    "updated_at": "2026-02-05T07:17:58.132853"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_2b45e2e7aa14491d80c8cb11292e7543",
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:17:58.132853",
+    "updated_at": "2026-02-05T07:17:58.132853"
+  },
+  {
+    "id": "rec_006",
+    "title": "Enable auto-termination for clusteriq cluster",
+    "description": "The clusteriq cluster runs for extended periods when idle. Enabling auto-termination after 15 minutes of inactivity will reduce idle compute costs.",
+    "type": "cost_optimization",
     "severity": "high",
-    "resource_type": "job",
-    "resource_id": "229907899455689",
-    "estimated_savings": "20\u201340% of job-related compute cost",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
     "risk": "low",
     "action": {
-      "type": "resize_cluster",
-      "target_id": "job-229907899455689",
+      "type": "enable_autotermination",
+      "target_id": "clusteriq",
       "params": {
-        "num_workers": 1
+        "autotermination_minutes": 15
       }
     },
     "status": "PENDING",
-    "id": "rec_023e0d98c55a40498533205c0a48cafa",
-    "created_at": "2026-01-29T11:49:42.508400",
-    "updated_at": "2026-01-29T11:49:42.508400"
+    "created_at": "2026-02-05T12:35:00",
+    "updated_at": "2026-02-05T12:35:00",
+    "status_note": "Waiting for approval to enable 15-minute auto-termination"
   },
   {
-    "title": "Downsize node type for short-running workloads",
-    "description": "All job clusters use Standard_F4 nodes regardless of very short execution durations (<10 minutes). For lightweight ETL or orchestration-style jobs, smaller VM types (e.g., Standard_F2 or autoscaling with min=1) are typically sufficient and cheaper.",
-    "type": "optimization_opportunity",
-    "severity": "medium",
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "high",
     "resource_type": "cluster",
-    "resource_id": "Standard_F4",
-    "estimated_savings": "15\u201325% per job run",
-    "risk": "medium",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
     "action": {
-      "type": "resize_cluster",
-      "target_id": "Standard_F4",
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
       "params": {
-        "num_workers": 1
+        "autotermination_minutes": 15
+      }
+    },
+    "status": "APPLIED",
+    "created_at": "2026-02-05T07:27:54.097879",
+    "updated_at": "2026-02-05T08:15:06.811258",
+    "status_note": "Auto-termination configured successfully"
+  },
+  {
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
       }
     },
     "status": "PENDING",
-    "id": "rec_f0dbfca1032c45189c4dfff9747af5f5",
-    "created_at": "2026-01-29T11:49:42.508400",
-    "updated_at": "2026-01-29T11:49:42.508400"
+    "created_at": "2026-02-05T07:29:21.488028",
+    "updated_at": "2026-02-05T07:29:21.488028",
+    "status_note": "Auto-detected: No auto-termination configured"
   },
   {
-    "title": "Eliminate duplicate log ingestion to avoid analysis overhead",
-    "description": "The same cluster records appear multiple times with different load_timestamps, indicating duplicate ingestion of cluster logs. While not a direct Databricks compute cost, this inflates downstream storage and analytics costs and can mislead optimization decisions.",
-    "type": "value_leak",
-    "severity": "medium",
-    "resource_type": "job",
-    "resource_id": "log-ingestion",
-    "estimated_savings": "Storage and reporting cost reduction (variable)",
-    "risk": "low",
-    "action": {
-      "type": "terminate_cluster",
-      "target_id": "log-ingestion",
-      "params": {}
-    },
-    "status": "PENDING",
-    "id": "rec_f9263f160ff1495e8e5ed695f4d0cdbb",
-    "created_at": "2026-01-29T11:49:42.508400",
-    "updated_at": "2026-01-29T11:49:42.508400"
-  },
-  {
-    "title": "Enforce auto-termination on long-lived UI clusters",
-    "description": "The UI cluster 'playground' (Standard_D4ds_v5) ran for an extremely long duration before termination, despite having zero workers. This is a classic idle cost scenario and should be controlled with aggressive auto-termination policies.",
-    "type": "cost_leak",
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
     "severity": "high",
     "resource_type": "cluster",
-    "resource_id": "0112-183358-dgy2sni8",
-    "estimated_savings": "Up to 100% of idle cluster cost",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
     "risk": "low",
     "action": {
-      "type": "terminate_cluster",
-      "target_id": "0112-183358-dgy2sni8",
-      "params": {}
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
+      }
     },
     "status": "PENDING",
-    "id": "rec_66744159796f403f8dbfa4ed7ac6ca47",
-    "created_at": "2026-01-29T11:49:42.508400",
-    "updated_at": "2026-01-29T11:49:42.508400"
+    "created_at": "2026-02-05T07:49:06.163861",
+    "updated_at": "2026-02-05T07:49:06.163861",
+    "status_note": "Auto-detected: No auto-termination configured"
+  },
+  {
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:54:24.765815",
+    "updated_at": "2026-02-05T07:54:24.765815",
+    "status_note": "Auto-detected: No auto-termination configured"
+  },
+  {
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "status": "PENDING",
+    "created_at": "2026-02-05T07:59:43.161986",
+    "updated_at": "2026-02-05T07:59:43.161986",
+    "status_note": "Auto-detected: No auto-termination configured"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_b418a8104c024802a707d24de6526801",
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:06:05.344592",
+    "updated_at": "2026-02-05T08:06:05.344592"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_f00a4f1a74844b789100d2a30a86c0c7",
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:06:05.344592",
+    "updated_at": "2026-02-05T08:06:05.344592"
+  },
+  {
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "medium",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:06:19.683939",
+    "updated_at": "2026-02-05T08:06:19.683939",
+    "status_note": "Auto-detected: No auto-termination configured"
+  },
+  {
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:11:08.904491",
+    "updated_at": "2026-02-05T08:11:08.904491",
+    "status_note": "Auto-detected: No auto-termination configured"
+  },
+  {
+    "id": "rec_auto_0204-144",
+    "title": "Enable auto-termination for clusteriq",
+    "description": "Cluster 'clusteriq' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
+    "type": "cost_optimization",
+    "severity": "high",
+    "resource_type": "cluster",
+    "resource_id": "clusteriq",
+    "estimated_savings": "30-50% idle cluster cost",
+    "risk": "low",
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0204-144158-49xv1ode",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:12:52.447703",
+    "updated_at": "2026-02-05T08:12:52.447703",
+    "status_note": "Auto-detected: No auto-termination configured"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_fb062d836361472d9c62a2bc73b55b1c",
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:14:48.525220",
+    "updated_at": "2026-02-05T08:14:48.525220"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_cd01c16648ce47e3986e1e78b68c8c50",
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:14:48.525220",
+    "updated_at": "2026-02-05T08:14:48.525220"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster cluster_1 is oversized for workload",
+    "estimated_savings": 500,
+    "action": "Reduce cluster memory configuration by 50%",
+    "id": "rec_4f90cca8b42b45e087c31c4356928523",
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:26:19.676106",
+    "updated_at": "2026-02-05T08:26:19.676106"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": 300,
+    "action": "Increase timeout values and implement exponential backoff",
+    "id": "rec_dd788923f82c4c258c7b8e4ebc23d630",
+    "status": "PENDING",
+    "created_at": "2026-02-05T08:26:19.676106",
+    "updated_at": "2026-02-05T08:26:19.676106"
   }
 ]

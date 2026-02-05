@@ -571,48 +571,49 @@ class APIHandler(BaseHTTPRequestHandler):
                             logger.warning(f"AI analysis failed, falling back to rule-based: {str(ai_error)}")
                             # Fall through to rule-based analysis
                             recommendations = []
-                    else:
-                        logger.info("AI agent not available, using rule-based analysis")
+                    except Exception as outer_error:
+                        logger.error(f"Error in AI analysis setup: {str(outer_error)}")
+                else:
+                    logger.info("AI agent not available, using rule-based analysis")
+                
+                # Ensure we have recommendations from rule-based analysis
+                if not recommendations:
+                    recommendations = perform_basic_analysis(jobs, clusters)
+                    logger.info(f"Rule-based analysis completed: {len(recommendations)} recommendations")
+                
+                # Try to add analysis for other compute types if we can fetch them
+                try:
+                    sql_warehouses = databricks_client.get_sql_warehouses() if 'sql_warehouses' not in locals() else sql_warehouses
+                    pools = databricks_client.get_instance_pools() if 'pools' not in locals() else pools
                     
-                    # Ensure we have recommendations from rule-based analysis
-                    if not recommendations:
-                        recommendations = perform_basic_analysis(jobs, clusters)
-                        logger.info(f"Rule-based analysis completed: {len(recommendations)} recommendations")
-                    
-                    # If AI was attempted but failed, we already have rule-based recommendations
-                    # If AI was not available, we already have rule-based recommendations
-                    
-                    # Try to add analysis for other compute types if we can fetch them
-                    try:
-                        sql_warehouses = databricks_client.get_sql_warehouses()
-                        for warehouse in sql_warehouses:
-                            if warehouse.get("state") == "RUNNING":
-                                recommendations.append({
-                                    "id": f"rec_warehouse_{len(recommendations)}",
-                                    "type": "cost_leak",
-                                    "severity": "medium",
-                                    "title": f"Running SQL Warehouse: {warehouse.get('name', 'Unknown')}",
-                                    "description": "SQL warehouse is running. Monitor usage and consider auto-stop if idle.",
-                                    "resource_type": "sql_warehouse",
-                                    "resource_id": warehouse.get("id"),
-                                    "estimated_savings": "Medium",
-                                    "risk": "Low",
-                                })
-                        for pool in pools:
-                            if pool.get("status", {}).get("instance_use_count", 0) == 0:
-                                recommendations.append({
-                                    "id": f"rec_pool_{len(recommendations)}",
-                                    "type": "cost_leak",
-                                    "severity": "low",
-                                    "title": f"Unused Instance Pool: {pool.get('instance_pool_name', 'Unknown')}",
-                                    "description": "Instance pool has no active instances. Consider reviewing pool configuration.",
-                                    "resource_type": "pool",
-                                    "resource_id": pool.get("instance_pool_id"),
-                                    "estimated_savings": "Low",
-                                    "risk": "Low",
-                                })
-                        logger.info(f"Rule-based analysis completed: {len(recommendations)} recommendations")
-                        
+                    for warehouse in sql_warehouses:
+                        if warehouse.get("state") == "RUNNING":
+                            recommendations.append({
+                                "id": f"rec_warehouse_{len(recommendations)}",
+                                "type": "cost_leak",
+                                "severity": "medium",
+                                "title": f"Running SQL Warehouse: {warehouse.get('name', 'Unknown')}",
+                                "description": "SQL warehouse is running. Monitor usage and consider auto-stop if idle.",
+                                "resource_type": "sql_warehouse",
+                                "resource_id": warehouse.get("id"),
+                                "estimated_savings": "Medium",
+                                "risk": "Low",
+                            })
+                    for pool in pools:
+                        if pool.get("status", {}).get("instance_use_count", 0) == 0:
+                            recommendations.append({
+                                "id": f"rec_pool_{len(recommendations)}",
+                                "type": "cost_leak",
+                                "severity": "low",
+                                "title": f"Unused Instance Pool: {pool.get('instance_pool_name', 'Unknown')}",
+                                "description": "Instance pool has no active instances. Consider reviewing pool configuration.",
+                                "resource_type": "pool",
+                                "resource_id": pool.get("instance_pool_id"),
+                                "estimated_savings": "Low",
+                                "risk": "Low",
+                            })
+                    logger.info(f"Rule-based analysis with additional resources completed: {len(recommendations)} recommendations")
+                
                 except Exception as analysis_error:
                     logger.error(f"Error during analysis: {str(analysis_error)}", exc_info=True)
                     # Return at least a basic analysis result
