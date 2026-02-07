@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchClusters, fetchJobRuns, startCluster, terminateCluster } from '../services/api'
-import { Activity, Server, Clock, ChevronDown, ChevronUp, Zap, AlertCircle, Play, Square } from 'lucide-react'
+import { fetchClusters, fetchJobRuns, startCluster, terminateCluster, fetchRecommendationsRealtime } from '../services/api'
+import { Activity, Server, Clock, ChevronDown, ChevronUp, Zap, AlertCircle, Play, Square, Lightbulb } from 'lucide-react'
 
 function ClustersView() {
   const [expandedCluster, setExpandedCluster] = useState(null)
@@ -11,6 +11,24 @@ function ClustersView() {
     queryFn: fetchClusters,
     refetchInterval: 30000, // Refresh every 30 seconds
   })
+
+  const { data: recData } = useQuery({
+    queryKey: ['recommendations-realtime'],
+    queryFn: fetchRecommendationsRealtime,
+    refetchInterval: 60000,
+  })
+
+  const clusterRecommendationCounts = useMemo(() => {
+    const counts = {}
+    const recommendations = recData?.recommendations || []
+    recommendations.forEach((rec) => {
+      if (rec.resource_type === 'cluster' && rec.resource_id != null) {
+        const key = String(rec.resource_id)
+        counts[key] = (counts[key] || 0) + 1
+      }
+    })
+    return counts
+  }, [recData])
 
   if (isLoading) {
     return <div className="text-center py-12 text-gray-500">Loading clusters...</div>
@@ -169,6 +187,10 @@ function ClustersView() {
                               ? `Auto-term: ${cluster.autotermination_minutes} min`
                               : 'No auto-term'}
                           </p>
+                        </div>
+                        <div className="flex items-center text-sm text-gray-700">
+                          <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
+                          {clusterRecommendationCounts[String(cluster.cluster_id)] || 0}
                         </div>
                         <span
                           className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStateColor(

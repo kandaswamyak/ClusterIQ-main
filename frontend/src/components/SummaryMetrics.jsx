@@ -70,7 +70,8 @@ function SummaryMetrics() {
     savings_by_type = {},
     resources_by_type = {},
     analysis_metadata = {},
-    success_metrics = {}
+    success_metrics = {},
+    last_30_days = {}
   } = data
 
   return (
@@ -220,6 +221,28 @@ function SummaryMetrics() {
           <SuccessMetric
             label="Optimization Coverage"
             value={success_metrics.optimization_coverage || '0 jobs, 0 resources'}
+          />
+        </div>
+      </div>
+
+      {/* Last 30 Days */}
+      <div className="dxc-card">
+        <h2 className="text-xl font-semibold mb-6 flex items-center text-gray-900">
+          <Calendar className="h-5 w-5 mr-2 text-primary-600" />
+          Last 30 Days
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <SuccessMetric
+            label="Unique Recommendations"
+            value={last_30_days.unique_recommendations || 0}
+          />
+          <SuccessMetric
+            label="Applied Recommendations"
+            value={last_30_days.applied_recommendations || 0}
+          />
+          <SuccessMetric
+            label="Benefit Received"
+            value={last_30_days.benefit_received_formatted || '$0.00'}
           />
         </div>
       </div>

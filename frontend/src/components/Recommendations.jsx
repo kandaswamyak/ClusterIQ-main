@@ -1,13 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchRecommendationsRealtime, analyzeJobsAndClusters } from '../services/api'
-import { AlertTriangle, TrendingDown, DollarSign, Clock, RefreshCw } from 'lucide-react'
+import {
+  fetchRecommendationsRealtime,
+  analyzeJobsAndClusters,
+  approveRecommendation,
+  applyRecommendation,
+  rejectRecommendation
+} from '../services/api'
+import { AlertTriangle, TrendingDown, DollarSign, RefreshCw, CheckCircle2, XCircle } from 'lucide-react'
 
 function Recommendations() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshInterval, setRefreshInterval] = useState(30)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const [actionState, setActionState] = useState({})
+  const [itemsPerPage] = useState(20)
+  const [visibleItems, setVisibleItems] = useState({}) // Track visible items per type
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['recommendations-realtime'],
@@ -57,6 +67,42 @@ function Recommendations() {
   }
 
   const recommendations = data?.recommendations || []
+
+  const handleRecommendationAction = async (recId, action) => {
+    setActionState((prev) => ({
+      ...prev,
+      [recId]: { status: 'loading', message: null, error: null }
+    }))
+    try {
+      if (action === 'approve') {
+        await approveRecommendation(recId)
+        setActionState((prev) => ({
+          ...prev,
+          [recId]: { status: 'approved', message: 'Recommendation approved', error: null }
+        }))
+      } else if (action === 'apply') {
+        await approveRecommendation(recId)
+        await applyRecommendation(recId)
+        setActionState((prev) => ({
+          ...prev,
+          [recId]: { status: 'success', message: 'Recommendation applied', error: null }
+        }))
+      } else if (action === 'reject') {
+        await rejectRecommendation(recId)
+        setActionState((prev) => ({
+          ...prev,
+          [recId]: { status: 'success', message: 'Recommendation rejected', error: null }
+        }))
+      }
+      await refetch()
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || 'Action failed'
+      setActionState((prev) => ({
+        ...prev,
+        [recId]: { status: 'error', message: null, error: message }
+      }))
+    }
+  }
 
   const groupedByType = recommendations.reduce((acc, rec) => {
     const type = rec.type || 'other'
@@ -172,80 +218,109 @@ function Recommendations() {
         </div>
       ) : (
         <>
-          {/* Calculate total savings */}
+          {/* Calculate annual savings per severity */}
           {(() => {
-            const totalMonthlySavings = recommendations.reduce(
-              (sum, rec) => sum + (rec.estimated_savings_monthly || 0),
-              0
-            )
-            const totalAnnualSavings = recommendations.reduce(
-              (sum, rec) => sum + (rec.estimated_savings_annual || 0),
-              0
-            )
+            // Calculate annual savings by severity
+            const highSavings = (groupedBySeverity.high || []).reduce((sum, rec) => {
+              const annual = rec.estimated_savings_annual || (rec.estimated_savings_monthly ? rec.estimated_savings_monthly * 12 : 0)
+              return sum + annual
+            }, 0)
+            
+            const mediumSavings = (groupedBySeverity.medium || []).reduce((sum, rec) => {
+              const annual = rec.estimated_savings_annual || (rec.estimated_savings_monthly ? rec.estimated_savings_monthly * 12 : 0)
+              return sum + annual
+            }, 0)
+            
+            const lowSavings = (groupedBySeverity.low || []).reduce((sum, rec) => {
+              const annual = rec.estimated_savings_annual || (rec.estimated_savings_monthly ? rec.estimated_savings_monthly * 12 : 0)
+              return sum + annual
+            }, 0)
+
             return (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="dxc-card bg-gradient-to-br from-green-50 to-emerald-100 border-green-200">
-                  <div className="flex items-center mb-3">
-                    <DollarSign className="h-5 w-5 text-green-600 mr-2" />
-                    <span className="font-semibold text-gray-900">Total Monthly Savings</span>
+              <>
+                {/* Savings Overview Cards by Severity */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="dxc-card bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+                    <div className="flex items-center mb-3">
+                      <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
+                      <span className="font-semibold text-gray-900">High Priority</span>
+                    </div>
+                    <div className="text-3xl font-bold text-red-600">
+                      ${highSavings.toFixed(2)}
+                    </div>
+                    <p className="text-xs text-red-600 mt-2">Estimated Annual Saving ({groupedBySeverity.high?.length || 0} items)</p>
                   </div>
-                  <div className="text-3xl font-bold text-green-600">
-                    ${totalMonthlySavings.toFixed(2)}
+                  <div className="dxc-card bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
+                    <div className="flex items-center mb-3">
+                      <AlertTriangle className="h-5 w-5 text-yellow-600 mr-2" />
+                      <span className="font-semibold text-gray-900">Medium Priority</span>
+                    </div>
+                    <div className="text-3xl font-bold text-yellow-600">
+                      ${mediumSavings.toFixed(2)}
+                    </div>
+                    <p className="text-xs text-yellow-600 mt-2">Estimated Annual Saving ({groupedBySeverity.medium?.length || 0} items)</p>
                   </div>
-                </div>
-                <div className="dxc-card bg-gradient-to-br from-emerald-50 to-teal-100 border-emerald-200">
-                  <div className="flex items-center mb-3">
-                    <DollarSign className="h-5 w-5 text-emerald-600 mr-2" />
-                    <span className="font-semibold text-gray-900">Total Annual Savings</span>
-                  </div>
-                  <div className="text-3xl font-bold text-emerald-600">
-                    ${totalAnnualSavings.toFixed(2)}
-                  </div>
-                </div>
-                <div className="dxc-card bg-red-50 border-red-200">
-                  <div className="flex items-center mb-3">
-                    <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
-                    <span className="font-semibold text-gray-900">High Priority</span>
-                  </div>
-                  <div className="text-3xl font-bold text-red-600">
-                    {groupedBySeverity.high?.length || 0}
-                  </div>
-                </div>
-                <div className="dxc-card bg-yellow-50 border-yellow-200">
-                  <div className="flex items-center mb-3">
-                    <AlertTriangle className="h-5 w-5 text-yellow-600 mr-2" />
-                    <span className="font-semibold text-gray-900">Medium Priority</span>
-                  </div>
-                  <div className="text-3xl font-bold text-yellow-600">
-                    {groupedBySeverity.medium?.length || 0}
+                  <div className="dxc-card bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                    <div className="flex items-center mb-3">
+                      <AlertTriangle className="h-5 w-5 text-blue-600 mr-2" />
+                      <span className="font-semibold text-gray-900">Low Priority</span>
+                    </div>
+                    <div className="text-3xl font-bold text-blue-600">
+                      ${lowSavings.toFixed(2)}
+                    </div>
+                    <p className="text-xs text-blue-600 mt-2">Estimated Annual Saving ({groupedBySeverity.low?.length || 0} items)</p>
                   </div>
                 </div>
-                <div className="dxc-card bg-blue-50 border-blue-200">
-                  <div className="flex items-center mb-3">
-                    <AlertTriangle className="h-5 w-5 text-blue-600 mr-2" />
-                    <span className="font-semibold text-gray-900">Low Priority</span>
-                  </div>
-                  <div className="text-3xl font-bold text-blue-600">
-                    {groupedBySeverity.low?.length || 0}
-                  </div>
-                </div>
-              </div>
+              </>
             )
           })()}
 
           <div className="space-y-6">
-            {Object.entries(groupedByType).map(([type, recs]) => (
-              <div key={type} className="dxc-card">
-                <h2 className="text-xl font-semibold mb-6 text-gray-900 capitalize">
-                  {type.replace('_', ' ')} ({recs.length})
-                </h2>
-                <div className="space-y-4">
-                  {recs.map((rec) => (
-                    <RecommendationCard key={rec.id} recommendation={rec} />
-                  ))}
+            {Object.entries(groupedByType).map(([type, recs]) => {
+              const currentVisible = visibleItems[type] || itemsPerPage
+              const displayedRecs = recs.slice(0, currentVisible)
+              const hasMore = recs.length > currentVisible
+
+              return (
+                <div key={type} className="dxc-card">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-semibold text-gray-900 capitalize">
+                      {type.replace('_', ' ')} ({recs.length})
+                    </h2>
+                    {recs.length > itemsPerPage && (
+                      <span className="text-sm text-gray-500">
+                        Showing {displayedRecs.length} of {recs.length}
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    {displayedRecs.map((rec) => (
+                      <RecommendationCard
+                        key={rec.id}
+                        recommendation={rec}
+                        isExpanded={expandedId === rec.id}
+                        onToggle={() => setExpandedId(expandedId === rec.id ? null : rec.id)}
+                        onAction={handleRecommendationAction}
+                        actionState={actionState[rec.id]}
+                      />
+                    ))}
+                  </div>
+                  {hasMore && (
+                    <div className="mt-6 text-center">
+                      <button
+                        onClick={() => setVisibleItems(prev => ({
+                          ...prev,
+                          [type]: currentVisible + itemsPerPage
+                        }))}
+                        className="dxc-button-secondary"
+                      >
+                        Show More ({recs.length - currentVisible} remaining)
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>
       )}
@@ -253,7 +328,7 @@ function Recommendations() {
   )
 }
 
-function RecommendationCard({ recommendation }) {
+function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, actionState }) {
   const severityColors = {
     high: 'border-red-500 bg-red-50',
     medium: 'border-yellow-500 bg-yellow-50',
@@ -263,96 +338,166 @@ function RecommendationCard({ recommendation }) {
   const severity = recommendation.severity || 'low'
   const colorClass = severityColors[severity] || severityColors.low
 
+  const formatMoney = (value) => {
+    if (typeof value === 'number' && value > 0) {
+      return `$${value.toFixed(2)}`
+    }
+    return '$0.00'
+  }
+
+  const estimatedMonthly =
+    recommendation.estimated_monthly_savings_usd ?? recommendation.estimated_savings_monthly
+  const estimatedAnnual = recommendation.estimated_savings_annual
+  
+  // Calculate total potential savings
+  const calculatedCostSavings = estimatedAnnual || (estimatedMonthly ? estimatedMonthly * 12 : 0)
+  const savingsAmount = calculatedCostSavings > 0 ? formatMoney(calculatedCostSavings) : (recommendation.estimated_savings || '$0.00')
+
   return (
-    <div className={`border-l-4 ${colorClass} rounded-lg p-6 bg-white shadow-sm hover:shadow-lg transition-shadow`}>
-      <div className="flex justify-between items-start mb-3">
-        <h3 className="text-lg font-semibold">
-          {recommendation.title || recommendation.type || 'Recommendation'}
-        </h3>
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-            severity === 'high'
-              ? 'bg-red-100 text-red-700'
-              : severity === 'medium'
-              ? 'bg-yellow-100 text-yellow-700'
-              : 'bg-blue-100 text-blue-700'
-          }`}
-        >
-          {severity.toUpperCase()}
-        </span>
-      </div>
-
-      {recommendation.description && (
-        <p className="text-gray-600 mb-4">{recommendation.description}</p>
-      )}
-
-      {/* Prominent Savings Display */}
-      {recommendation.estimated_savings && (
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-r-lg p-4 mb-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm text-gray-600 font-medium mb-1">Potential Savings</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-green-600">{recommendation.estimated_savings}</span>
-              </div>
+    <div className={`border-l-4 ${colorClass} rounded-lg bg-white shadow-sm hover:shadow-md transition-all cursor-pointer`}>
+      <button type="button" onClick={onToggle} className="w-full text-left p-4">
+        <div className="flex justify-between items-center gap-4">
+          {/* Left: Title and Basic Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-base font-semibold text-gray-900 truncate">
+                {recommendation.title || recommendation.type || 'Recommendation'}
+              </h3>
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${
+                  severity === 'high'
+                    ? 'bg-red-100 text-red-700'
+                    : severity === 'medium'
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {severity.toUpperCase()}
+              </span>
             </div>
-            <DollarSign className="h-8 w-8 text-green-500 opacity-20" />
+            {recommendation.resource_name && (
+              <p className="text-xs text-gray-500 truncate">
+                Resource: {recommendation.resource_name}
+              </p>
+            )}
           </div>
-          {recommendation.estimated_savings_monthly && (
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-white bg-opacity-60 rounded p-2">
-                <p className="text-gray-600">Monthly</p>
-                <p className="font-bold text-green-600">${recommendation.estimated_savings_monthly.toFixed(2)}</p>
-              </div>
-              <div className="bg-white bg-opacity-60 rounded p-2">
-                <p className="text-gray-600">Annual</p>
-                <p className="font-bold text-green-700">${recommendation.estimated_savings_annual.toFixed(2)}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        {recommendation.current_config && (
-          <div>
-            <h4 className="text-sm font-semibold text-gray-400 mb-2">Current Configuration</h4>
-            <div className="bg-gray-50 rounded p-3 text-sm border border-gray-200">
-              <pre className="text-gray-700 text-xs overflow-x-auto">
-                {JSON.stringify(recommendation.current_config, null, 2)}
-              </pre>
-            </div>
-          </div>
-        )}
-
-        {recommendation.recommended_config && (
-          <div>
-            <h4 className="text-sm font-semibold text-gray-400 mb-2">Recommended Configuration</h4>
-            <div className="bg-gray-50 rounded p-3 text-sm border border-gray-200">
-              <pre className="text-gray-700 text-xs overflow-x-auto">
-                {JSON.stringify(recommendation.recommended_config, null, 2)}
-              </pre>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-wrap gap-4">
-        {recommendation.risk && (
-          <div className="flex items-center text-yellow-700">
-            <AlertTriangle className="h-4 w-4 mr-1" />
-            <span className="text-sm">Risk: {recommendation.risk}</span>
-          </div>
-        )}
-
-        {recommendation.resource_type && (
-          <div className="flex items-center text-blue-700">
-            <span className="text-sm">
-              {recommendation.resource_type}: {recommendation.resource_id}
+          {/* Right: Expand Arrow */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className="text-gray-400 text-xl">
+              {isExpanded ? '▼' : '▶'}
             </span>
           </div>
-        )}
-      </div>
+        </div>
+      </button>
+
+      {isExpanded && (
+        <div className="px-4 pb-4 space-y-4 border-t pt-4">
+          {/* What's the Issue - Description */}
+          {recommendation.description && (
+            <div className="bg-blue-50 border-l-4 border-blue-500 rounded-r-lg p-4">
+              <h4 className="text-sm font-bold text-blue-900 mb-2 flex items-center">
+                <span className="mr-2">📋</span> What's the Issue?
+              </h4>
+              <p className="text-sm text-gray-700 leading-relaxed">{recommendation.description}</p>
+            </div>
+          )}
+
+          {/* Cost Savings Summary */}
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-400 rounded-lg p-4">
+            <h4 className="text-sm font-bold text-green-900 mb-3 flex items-center">
+              <span className="mr-2">💰</span> ClusterIQ recommended Savings
+            </h4>
+            
+            {/* Clear savings summary */}
+            <div className="bg-green-600 text-white rounded-lg p-4">
+              <p className="text-sm font-semibold">
+                ✅ By clicking "Apply", you'll automatically save{' '}
+                <span className="text-xl font-bold">{savingsAmount}</span>
+                {' '}per year without any negative impact.
+              </p>
+            </div>
+            
+            {/* Additional Context */}
+            <div className="mt-4 pt-4 border-t border-green-200">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(recommendation.issue_if_not_applied || recommendation.risk_level) && (
+                  <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
+                    <p className="text-xs text-yellow-900 font-semibold mb-1">⚠️ If Not Applied:</p>
+                    <p className="text-xs text-yellow-800">
+                      {recommendation.issue_if_not_applied || recommendation.risk_level || 'Ongoing inefficiency and waste'}
+                    </p>
+                  </div>
+                )}
+                {recommendation.performance_impact && (
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                    <p className="text-xs text-blue-900 font-semibold mb-1">📈 Performance Impact:</p>
+                    <p className="text-xs text-blue-800">
+                      {recommendation.performance_impact}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-3 pt-3 border-t">
+            {actionState?.status === 'success' ? (
+              <p className="text-base font-semibold text-green-600">
+                💰 You'll Save {savingsAmount} per year
+              </p>
+            ) : (
+              <>
+                {actionState?.status === 'approved' && (
+                  <p className="text-sm font-semibold text-green-600 mr-2">
+                    ✓ Approved - Ready to apply and save {savingsAmount} per year
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAction(recommendation.id, 'approve')
+                  }}
+                  className="dxc-button-secondary flex items-center"
+                  disabled={actionState?.status === 'loading' || actionState?.status === 'approved'}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAction(recommendation.id, 'apply')
+                  }}
+                  className="dxc-button-primary flex items-center text-base px-6 py-3"
+                  disabled={actionState?.status === 'loading'}
+                >
+                  <CheckCircle2 className="h-5 w-5 mr-2" />
+                  Apply & Save <span className="ml-1 font-bold">{savingsAmount}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAction(recommendation.id, 'reject')
+                  }}
+                  className="dxc-button-danger flex items-center"
+                  disabled={actionState?.status === 'loading'}
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Reject
+                </button>
+              </>
+            )}
+            {actionState?.status === 'error' && (
+              <span className="text-sm text-red-600 font-semibold ml-auto">✗ {actionState.error}</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

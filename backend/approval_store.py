@@ -42,9 +42,12 @@ def add_recommendations(recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     now = datetime.utcnow().isoformat()
     with _LOCK:
         items = _load()
+        existing_ids = {item.get("id") for item in items if item.get("id")}
         new_items = []
         for rec in recs:
             rec_id = rec.get("id") or f"rec_{uuid4().hex}"
+            if rec_id in existing_ids:
+                continue
             enriched = {
                 **rec,
                 "id": rec_id,

@@ -2,8 +2,9 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from typing import List, Dict, Any
+import re
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import settings
 from databricks_client import DatabricksClient
@@ -258,7 +259,8 @@ def generate_autotermination_recommendations(clusters):
                         "type": "cost_optimization",
                         "severity": "high" if cluster.get("state") == "RUNNING" else "medium",
                         "resource_type": "cluster",
-                        "resource_id": cluster_name,
+                        "resource_id": cluster_id,
+                        "resource_name": cluster_name,
                         "estimated_savings": "30-50% idle cluster cost",
                         "risk": "low",
                         "action": {
@@ -450,6 +452,35 @@ def analyze_jobs_and_clusters():
                 "estimated_savings": "Continue monitoring",
                 "risk": "None",
             }]
+
+        cluster_ids = {c.get("cluster_id") for c in clusters if c.get("cluster_id")}
+        cluster_name_to_id = {
+            c.get("cluster_name"): c.get("cluster_id")
+            for c in clusters
+            if c.get("cluster_name") and c.get("cluster_id")
+        }
+
+        for rec in recommendations:
+            if rec.get("resource_type") != "cluster":
+                continue
+            action = rec.get("action")
+            if isinstance(action, dict) and action.get("type") and action.get("target_id"):
+                continue
+
+            target = rec.get("resource_id") or rec.get("resource_name")
+            if target in cluster_ids:
+                target_id = target
+            else:
+                target_id = cluster_name_to_id.get(target)
+
+            if not target_id:
+                continue
+
+            rec["action"] = {
+                "type": "enable_autotermination",
+                "target_id": target_id,
+                "params": {"autotermination_minutes": 15}
+            }
         
         # Update cache
         global analysis_cache, cache_timestamp
@@ -462,6 +493,12 @@ def analyze_jobs_and_clusters():
             "analysis_summary": analysis_summary
         }
         cache_timestamp = datetime.utcnow()
+
+        # Persist recommendations to approval store for actions
+        try:
+            add_recommendations(recommendations)
+        except Exception as store_error:
+            logger.warning(f"Failed to persist recommendations to approval store: {store_error}")
         
         return jsonify({
             "recommendations": recommendations,
@@ -557,7 +594,14 @@ def get_stats():
             logger.warning(f"Error getting clusters: {e}")
             clusters = []
         
-        running_clusters = [c for c in clusters if c.get("state") == "RUNNING"]
+        def _is_running_cluster(cluster: Dict[str, Any]) -> bool:
+            state = cluster.get("state")
+            if not state:
+                return False
+            state_upper = str(state).upper()
+            return state_upper in {"RUNNING", "RESIZING", "STARTING", "RESTARTING"}
+
+        running_clusters = [c for c in clusters if _is_running_cluster(c)]
         
         # Get all compute resource types (with individual error handling)
         try:
@@ -660,6 +704,24 @@ def get_summary():
     try:
         # Get recommendations from cache
         recommendations = analysis_cache.get("recommendations", []) if analysis_cache else []
+
+        def _parse_savings_value(rec: Dict[str, Any]) -> float:
+            savings_value = 0.0
+            savings_str = rec.get("estimated_savings", "")
+            if savings_str:
+                import re
+                numbers = re.findall(r"\d+\.?\d*", savings_str)
+                if numbers:
+                    savings_value = float(numbers[0])
+                    if "%" in savings_str.lower():
+                        savings_value = savings_value * 100
+            if not savings_value:
+                for key in ("estimated_savings_monthly", "estimated_monthly_savings_usd"):
+                    value = rec.get(key)
+                    if isinstance(value, (int, float)):
+                        savings_value = float(value)
+                        break
+            return savings_value
         
         # Calculate metrics
         total_recommendations = len(recommendations)
@@ -669,23 +731,14 @@ def get_summary():
         savings_by_type = {"cost_leak": 0, "value_leak": 0, "optimization_opportunity": 0}
         
         for rec in recommendations:
-            savings_str = rec.get("estimated_savings", "")
-            if savings_str:
-                # Try to extract numeric value (handles "$500/month", "30%", etc.)
-                import re
-                # Extract numbers (including decimals)
-                numbers = re.findall(r'\d+\.?\d*', savings_str)
-                if numbers:
-                    savings_value = float(numbers[0])
-                    # If it's a percentage, estimate based on average (rough calculation)
-                    if '%' in savings_str.lower():
-                        savings_value = savings_value * 100  # Rough estimate: treat % as base amount
-                    total_savings += savings_value
-                    
-                    # Track by type
-                    rec_type = rec.get("type", "optimization_opportunity")
-                    if rec_type in savings_by_type:
-                        savings_by_type[rec_type] += savings_value
+            savings_value = _parse_savings_value(rec)
+            if savings_value:
+                total_savings += savings_value
+                
+                # Track by type
+                rec_type = rec.get("type", "optimization_opportunity")
+                if rec_type in savings_by_type:
+                    savings_by_type[rec_type] += savings_value
         
         # Count by type
         by_type = {
@@ -725,6 +778,26 @@ def get_summary():
         analysis_timestamp = cache_timestamp.isoformat() if cache_timestamp else None
         jobs_analyzed = analysis_cache.get("jobs_count", 0) if analysis_cache else 0
         clusters_analyzed = analysis_cache.get("clusters_count", 0) if analysis_cache else 0
+
+        # Approval metrics for last 30 days
+        now = datetime.utcnow()
+        window_start = now - timedelta(days=30)
+        approvals = list_recommendations()
+        recent_approvals = []
+        for rec in approvals:
+            created_at = rec.get("created_at")
+            if not created_at:
+                continue
+            try:
+                created_dt = datetime.fromisoformat(created_at)
+            except ValueError:
+                continue
+            if created_dt >= window_start:
+                recent_approvals.append(rec)
+
+        unique_recent = {rec.get("id") for rec in recent_approvals if rec.get("id")}
+        applied_recent = [rec for rec in recent_approvals if rec.get("status") == "APPLIED"]
+        applied_benefit = sum(_parse_savings_value(rec) for rec in applied_recent)
         
         return jsonify({
             "total_cost_savings": round(total_savings, 2),
@@ -741,6 +814,12 @@ def get_summary():
                 "jobs_analyzed": jobs_analyzed,
                 "clusters_analyzed": clusters_analyzed,
                 "has_analysis": len(recommendations) > 0
+            },
+            "last_30_days": {
+                "unique_recommendations": len(unique_recent),
+                "applied_recommendations": len(applied_recent),
+                "benefit_received": round(applied_benefit, 2),
+                "benefit_received_formatted": f"${applied_benefit:,.2f}"
             },
             "success_metrics": {
                 "recommendations_generated": total_recommendations,
@@ -1138,11 +1217,38 @@ def apply_recommendation(rec_id):
         action_type = action.get("type")
         target_id = action.get("target_id")
         params = action.get("params", {})
-        
+        applied_note = None
+
+        if (not action_type or not target_id) and rec.get("resource_type") == "cluster":
+            target_id = rec.get("resource_id") or rec.get("resource_name")
+            action_type = "enable_autotermination"
+            params = {"autotermination_minutes": 15}
+
         if not action_type or not target_id:
             logger.warning(f"Recommendation {rec_id} has no actionable details. Action: {action}")
             return jsonify({"success": False, "error": "Recommendation has no actionable details"}), 400
         
+        def resolve_cluster_id(cluster_id_or_name: str) -> str:
+            clusters = databricks_client.get_all_clusters()
+            for cluster in clusters:
+                if cluster.get("cluster_id") == cluster_id_or_name:
+                    return cluster_id_or_name
+            for cluster in clusters:
+                if cluster.get("cluster_name") == cluster_id_or_name:
+                    return cluster.get("cluster_id")
+            return cluster_id_or_name
+
+        def extract_core_limits(error_message: str) -> tuple:
+            match = re.search(r"Estimated available:\s*(\d+)\s*,\s*requested:\s*(\d+)", error_message)
+            if not match:
+                match = re.search(r"available:\s*(\d+).*requested:\s*(\d+)", error_message, re.IGNORECASE)
+            if not match:
+                return (None, None)
+            return (int(match.group(1)), int(match.group(2)))
+
+        if action_type in {"terminate_cluster", "resize_cluster", "enable_autotermination"}:
+            target_id = resolve_cluster_id(target_id)
+
         logger.info(f"Applying recommendation {rec_id}: {action_type} on {target_id}")
         
         result = {"status": "error", "error": "Unsupported action type"}
@@ -1166,11 +1272,34 @@ def apply_recommendation(rec_id):
             result = databricks_client.terminate_cluster(target_id)
         
         elif action_type == "resize_cluster":
+            requested_workers = params.get("num_workers")
             result = databricks_client.resize_cluster(
                 cluster_id=target_id,
-                num_workers=params.get("num_workers"),
+                num_workers=requested_workers,
                 autoscale=params.get("autoscale")
             )
+
+            if result.get("status") != "success":
+                error_msg = str(result.get("error", ""))
+                if "not have enough CPU cores" in error_msg and requested_workers:
+                    available_cores, requested_cores = extract_core_limits(error_msg)
+                    if available_cores and requested_cores and requested_cores > 0:
+                        adjusted_workers = max(1, int((available_cores * requested_workers) // requested_cores))
+                        if adjusted_workers < requested_workers:
+                            retry_result = databricks_client.resize_cluster(
+                                cluster_id=target_id,
+                                num_workers=adjusted_workers
+                            )
+                            if retry_result.get("status") == "success":
+                                applied_note = (
+                                    "Applied with adjusted workers due to core limits. "
+                                    f"Requested workers: {requested_workers}, "
+                                    f"available cores: {available_cores}, requested cores: {requested_cores}, "
+                                    f"applied workers: {adjusted_workers}."
+                                )
+                                result = retry_result
+                            else:
+                                result = retry_result
         elif action_type == "enable_autotermination":
             # Enable auto-termination on a cluster
             autotermination_minutes = params.get("autotermination_minutes", 15)
@@ -1180,7 +1309,7 @@ def apply_recommendation(rec_id):
             )
         
         if result.get("status") == "success":
-            updated = update_status(rec_id, "APPLIED")
+            updated = update_status(rec_id, "APPLIED", note=applied_note)
             logger.info(f"Successfully applied recommendation {rec_id}")
             return jsonify({
                 "success": True,

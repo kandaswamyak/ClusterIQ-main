@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchStats, analyzeJobsAndClusters, fetchRecommendations, fetchLogsStats } from '../services/api'
-import { Activity, Database, TrendingDown, AlertCircle, RefreshCw, AlertTriangle } from 'lucide-react'
+import { fetchStats, analyzeJobsAndClusters, fetchRecommendationsRealtime, fetchLogsStats } from '../services/api'
+import { Activity, Database, TrendingDown, AlertCircle, RefreshCw, AlertTriangle, Lightbulb } from 'lucide-react'
 
 function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -22,9 +23,9 @@ function Dashboard() {
   }
 
   const { data: recommendations, refetch: refetchRecommendations } = useQuery({
-    queryKey: ['recommendations'],
-    queryFn: fetchRecommendations,
-    enabled: false, // Don't fetch automatically
+    queryKey: ['recommendations-realtime'],
+    queryFn: fetchRecommendationsRealtime,
+    refetchInterval: 30000,
   })
 
   const { data: logsStats, isLoading: logsStatsLoading } = useQuery({
@@ -51,6 +52,16 @@ function Dashboard() {
     const savings = parseFloat(r.estimated_savings?.replace(/[^0-9.]/g, '') || 0)
     return sum + savings
   }, 0) || 0
+
+  const recommendationsList = recommendations?.recommendations || []
+  const jobRecommendationCount = recommendationsList.filter((rec) => {
+    const resourceType = (rec.resource_type || '').toLowerCase()
+    return resourceType === 'job' || resourceType === 'jobs'
+  }).length
+  const clusterRecommendationCount = recommendationsList.filter((rec) => {
+    const resourceType = (rec.resource_type || '').toLowerCase()
+    return resourceType === 'cluster' || resourceType === 'clusters'
+  }).length
 
   return (
     <div className="space-y-8">
@@ -79,14 +90,16 @@ function Dashboard() {
       )}
 
       {recommendations && (
-        <div className="dxc-card">
-          <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
-            <TrendingDown className="h-5 w-5 mr-2 text-blue-600" />
-            Total Recommendations
-          </h2>
-          <div className="text-4xl font-bold text-blue-600">{recommendations.recommendations?.length || 0}</div>
-          <p className="text-gray-600 mt-2 text-sm">AI-powered optimization suggestions</p>
-        </div>
+        <Link to="/recommendations" className="block cursor-pointer">
+          <div className="dxc-card hover:shadow-lg hover:scale-[1.02] transition-all duration-200 bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200">
+            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
+              <TrendingDown className="h-5 w-5 mr-2 text-blue-600" />
+              📊 Total Recommendations
+            </h2>
+            <div className="text-4xl font-bold text-blue-600">{recommendations.recommendations?.length || 0}</div>
+            <p className="text-gray-600 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
+          </div>
+        </Link>
       )}
 
       {statsLoading ? (
@@ -100,12 +113,24 @@ function Dashboard() {
               value={stats?.total_jobs || 0}
               icon={<Database className="h-6 w-6" />}
               color="blue"
+              footer={
+                <Link to="/recommendations" className="mt-2 inline-flex items-center text-xs text-blue-600 hover:text-blue-800 font-semibold hover:underline">
+                  <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
+                  💰 {jobRecommendationCount} $ recommendations
+                </Link>
+              }
             />
             <StatCard
               title="Total Clusters"
               value={stats?.total_clusters || 0}
               icon={<Activity className="h-6 w-6" />}
               color="green"
+              footer={
+                <Link to="/recommendations" className="mt-2 inline-flex items-center text-xs text-green-600 hover:text-green-800 font-semibold hover:underline">
+                  <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
+                  💰 {clusterRecommendationCount} $ recommendations
+                </Link>
+              }
             />
             <StatCard
               title="Running Clusters"
@@ -232,9 +257,10 @@ function Dashboard() {
           <h2 className="text-xl font-semibold mb-6 text-gray-900">Recent Recommendations</h2>
           <div className="space-y-4">
             {recommendations.recommendations.slice(0, 5).map((rec) => (
-              <div
+              <Link
                 key={rec.id}
-                className="bg-gray-50 rounded-lg p-4 border-l-4 border-primary-600 hover:shadow-md transition-shadow"
+                to="/recommendations"
+                className="block bg-gray-50 rounded-lg p-4 border-l-4 border-primary-600 hover:shadow-md transition-shadow"
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
@@ -255,7 +281,7 @@ function Dashboard() {
                     {rec.severity || 'low'}
                   </span>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -264,7 +290,7 @@ function Dashboard() {
   )
 }
 
-function StatCard({ title, value, icon, color, compact = false }) {
+function StatCard({ title, value, icon, color, compact = false, footer }) {
   const colorClasses = {
     blue: 'bg-blue-50 border-blue-200 text-blue-700',
     green: 'bg-green-50 border-green-200 text-green-700',
@@ -301,6 +327,7 @@ function StatCard({ title, value, icon, color, compact = false }) {
         <div>
           <p className="text-sm font-medium mb-2 opacity-75">{title}</p>
           <p className="text-3xl font-bold">{value}</p>
+          {footer}
         </div>
         <div className={`${iconColors[color]} opacity-80`}>{icon}</div>
       </div>

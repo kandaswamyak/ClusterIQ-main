@@ -1,6 +1,7 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchJobs } from '../services/api'
-import { Database, Clock, User } from 'lucide-react'
+import { fetchJobs, fetchRecommendationsRealtime } from '../services/api'
+import { Database, Clock, User, Lightbulb } from 'lucide-react'
 
 function JobsView() {
   const { data: jobs, isLoading, error } = useQuery({
@@ -8,6 +9,24 @@ function JobsView() {
     queryFn: fetchJobs,
     refetchInterval: 60000, // Refresh every minute
   })
+
+  const { data: recData } = useQuery({
+    queryKey: ['recommendations-realtime'],
+    queryFn: fetchRecommendationsRealtime,
+    refetchInterval: 60000,
+  })
+
+  const jobRecommendationCounts = useMemo(() => {
+    const counts = {}
+    const recommendations = recData?.recommendations || []
+    recommendations.forEach((rec) => {
+      if (rec.resource_type === 'job' && rec.resource_id != null) {
+        const key = String(rec.resource_id)
+        counts[key] = (counts[key] || 0) + 1
+      }
+    })
+    return counts
+  }, [recData])
 
   if (isLoading) {
     return <div className="text-center py-12 text-gray-500">Loading jobs...</div>
@@ -56,6 +75,9 @@ function JobsView() {
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   Created
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Recommendations
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -97,6 +119,12 @@ function JobsView() {
                           day: 'numeric'
                         })
                       : 'N/A'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center text-sm text-gray-700">
+                      <Lightbulb className="h-4 w-4 mr-2 text-amber-500" />
+                      {jobRecommendationCounts[String(job.job_id)] || 0}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -72,24 +72,127 @@ class ClusterIQAgent:
             context = self._prepare_analysis_context(jobs, clusters, job_runs)
             
             # Create analysis prompt
-            prompt = f"""Analyze the following Databricks jobs and clusters to identify:
-1. Cost leaks (over-provisioned clusters, idle resources)
-2. Value leaks (small jobs on large clusters, inefficient configurations)
-3. Optimization opportunities (right-sizing, scheduling, resource allocation)
+            prompt = f"""
 
-Context:
+You are a Databricks platform optimization and FinOps expert.
+ 
+Analyze the provided Databricks context (jobs, clusters, schedules, job status, Spark configs, and code if present).
+ 
+Identify issues ONLY in these areas:
+ 
+1. Cost & Value Leaks
+
+   - Over/under sized clusters
+
+   - Idle resources
+
+   - Small jobs on large clusters
+
+   - Inefficient configurations
+ 
+2. Cluster Configuration vs Job Status
+
+   - Long pending jobs
+
+   - Frequent failures
+
+   - Retry storms
+
+   - Resource starvation
+ 
+3. Job Scheduling & Cluster Misuse
+
+   - Always-on clusters for batch jobs
+
+   - Wrong job cluster selection
+
+   - Inefficient schedules
+ 
+4. Code Issues Causing Failures or Waste
+
+   - collect()/driver overload
+
+   - repartition abuse
+
+   - wide joins without broadcast
+
+   - missing filters
+
+   - schema mismatches
+
+   - non-idempotent writes
+ 
+Input Context:
+
 {json.dumps(context, indent=2)}
+ 
+For EACH finding provide:
+ 
+- category (cost_value | cluster_status | scheduling | code)
 
-Provide detailed recommendations for each identified issue, including:
-- Issue type (cost leak, value leak, optimization opportunity)
-- Severity (high, medium, low)
-- Current configuration
-- Recommended configuration
-- Estimated cost savings
-- Risk assessment
-- Implementation steps
+- severity (high | medium | low)
 
-Format the response as a JSON array of recommendations."""
+- affected_job
+
+- affected_cluster
+
+- root_cause
+
+- current_state (brief)
+
+- recommendation (specific configuration or code change)
+
+- estimated_monthly_savings_usd (rough if possible)
+
+- implementation_steps
+
+- validation_steps
+ 
+Add scoring:
+ 
+- impact_score (1–10)  # cost or stability improvement
+
+- confidence_score (1–10)  # how certain you are
+
+- priority_score = impact_score * confidence_score
+ 
+Return ONLY valid JSON:
+ 
+{
+
+  "summary": {
+
+     "total_issues": number,
+
+     "high_severity": number,
+
+     "top_3_by_priority": [issue_ids]
+
+  },
+
+  "findings": [
+
+     {
+
+       "id": "ISSUE-1",
+
+       ...
+
+     }
+
+  ]
+
+}
+ 
+Do NOT include markdown or extra text.
+
+Ignore non-essential metadata.
+
+Think step-by-step before answering.
+
+"""
+
+ 
 
             # Get AI analysis
             try:

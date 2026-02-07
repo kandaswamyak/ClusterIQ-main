@@ -22,39 +22,101 @@ def perform_basic_analysis(jobs, clusters):
         num_workers = cluster.get("num_workers", 0)
         cluster_name = cluster.get("cluster_name", "Unknown")
         cluster_id = cluster.get("cluster_id")
+        autotermination_minutes = cluster.get("autotermination_minutes")
+        autoscale = cluster.get("autoscale")
         
         # Check for running clusters that might be idle
         if state == "RUNNING":
             if num_workers > 0:
-                recommendations.append({
-                    "id": f"rec_{len(recommendations)}",
-                    "type": "cost_leak",
-                    "severity": "medium",
-                    "title": f"Running cluster: {cluster_name}",
-                    "description": f"Cluster is running with {num_workers} workers. Monitor for idle time and consider auto-termination if not actively used.",
-                    "resource_type": "cluster",
-                    "resource_id": cluster_id,
-                    "current_config": {
-                        "num_workers": num_workers,
-                        "node_type": cluster.get("node_type_id"),
-                        "state": state,
-                        "autotermination_minutes": cluster.get("autotermination_minutes"),
-                    },
-                    "recommended_config": {
-                        "action": "Set auto-termination if cluster is idle for extended periods",
-                        "suggested_autotermination": 15,
-                    },
-                    "estimated_savings": "Medium - depends on idle time",
-                    "risk": "Low",
-                })
+                # Check if cluster has oversized worker count - if more than 4, suggest resize
+                if num_workers > 4:
+                    suggested_workers = max(2, int(num_workers / 2))
+                    monthly_cost = (num_workers + 1) * 0.40 * 730  # Approximate hourly rate * 730 hours/month
+                    new_cost = (suggested_workers + 1) * 0.40 * 730
+                    savings = monthly_cost - new_cost
+                    
+                    recommendations.append({
+                        "id": f"rec_resize_{cluster_id}",
+                        "type": "cost_leak",
+                        "severity": "high",
+                        "title": f"Resize oversized cluster: {cluster_name}",
+                        "description": f"Cluster is running with {num_workers} workers. Consider downsizing to {suggested_workers} workers to reduce costs.",
+                        "resource_type": "cluster",
+                        "resource_id": cluster_id,
+                        "current_config": {
+                            "num_workers": num_workers,
+                            "node_type": cluster.get("node_type_id"),
+                            "state": state,
+                            "autotermination_minutes": autotermination_minutes,
+                        },
+                        "recommended_config": {
+                            "num_workers": suggested_workers,
+                        },
+                        "action": {
+                            "type": "resize_cluster",
+                            "target_id": cluster_id,
+                            "params": {
+                                "num_workers": suggested_workers
+                            }
+                        },
+                        "estimated_savings": f"${savings:.2f}/month",
+                        "estimated_savings_monthly": round(savings, 2),
+                        "estimated_savings_annual": round(savings * 12, 2),
+                        "risk": "Medium - Test resizing in non-production first",
+                    })
+                
+                # Check if auto-termination is not configured
+                if not autotermination_minutes or autotermination_minutes == 0:
+                    recommendations.append({
+                        "id": f"rec_autotermination_{cluster_id}",
+                        "type": "cost_leak",
+                        "severity": "high",
+                        "title": f"Enable auto-termination: {cluster_name}",
+                        "description": f"Cluster '{cluster_name}' does not have auto-termination enabled. Enabling 15-minute auto-termination will save costs when the cluster is idle.",
+                        "resource_type": "cluster",
+                        "resource_id": cluster_id,
+                        "current_config": {
+                            "num_workers": num_workers,
+                            "node_type": cluster.get("node_type_id"),
+                            "state": state,
+                            "autotermination_minutes": autotermination_minutes,
+                        },
+                        "recommended_config": {
+                            "autotermination_minutes": 15,
+                        },
+                        "action": {
+                            "type": "enable_autotermination",
+                            "target_id": cluster_id,
+                            "params": {
+                                "autotermination_minutes": 15
+                            }
+                        },
+                        "estimated_savings": "$20-50/month",
+                        "estimated_savings_monthly": 35.0,
+                        "estimated_savings_annual": 420.0,
+                        "risk": "Low",
+                    })
+                else:
+                    # Auto-termination is enabled - note it
+                    recommendations.append({
+                        "id": f"rec_autotermination_enabled_{cluster_id}",
+                        "type": "optimization",
+                        "severity": "low",
+                        "title": f"Auto-termination enabled: {cluster_name}",
+                        "description": f"Cluster has auto-termination enabled with {autotermination_minutes} minutes idle timeout - good practice!",
+                        "resource_type": "cluster",
+                        "resource_id": cluster_id,
+                        "estimated_savings": "Already optimized",
+                        "risk": "None",
+                    })
             else:
                 # Single node cluster
                 recommendations.append({
-                    "id": f"rec_{len(recommendations)}",
+                    "id": f"rec_singlenode_{cluster_id}",
                     "type": "optimization",
                     "severity": "low",
                     "title": f"Single-node cluster: {cluster_name}",
-                    "description": "Single-node cluster detected. Suitable for lightweight workloads.",
+                    "description": "Single-node cluster detected. Suitable for lightweight workloads and cost-effective.",
                     "resource_type": "cluster",
                     "resource_id": cluster_id,
                     "current_config": {
