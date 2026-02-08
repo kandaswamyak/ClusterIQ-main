@@ -3,10 +3,17 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from config import settings
 from databricks_client import DatabricksClient
+
+# Configure timezone for IST (India Standard Time)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_time():
+    """Get current time in IST timezone."""
+    return datetime.now(IST)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,6 +22,7 @@ logger = logging.getLogger(__name__)
 def perform_basic_analysis(jobs, clusters):
     """Perform rule-based analysis without AI."""
     recommendations = []
+    now = get_ist_time().isoformat()
     
     # Analyze clusters
     for cluster in clusters:
@@ -43,6 +51,8 @@ def perform_basic_analysis(jobs, clusters):
                         "description": f"Cluster is running with {num_workers} workers. Consider downsizing to {suggested_workers} workers to reduce costs.",
                         "resource_type": "cluster",
                         "resource_id": cluster_id,
+                        "created_at": now,
+                        "timestamp": now,
                         "current_config": {
                             "num_workers": num_workers,
                             "node_type": cluster.get("node_type_id"),
@@ -75,6 +85,8 @@ def perform_basic_analysis(jobs, clusters):
                         "description": f"Cluster '{cluster_name}' does not have auto-termination enabled. Enabling 15-minute auto-termination will save costs when the cluster is idle.",
                         "resource_type": "cluster",
                         "resource_id": cluster_id,
+                        "created_at": now,
+                        "timestamp": now,
                         "current_config": {
                             "num_workers": num_workers,
                             "node_type": cluster.get("node_type_id"),
@@ -82,13 +94,13 @@ def perform_basic_analysis(jobs, clusters):
                             "autotermination_minutes": autotermination_minutes,
                         },
                         "recommended_config": {
-                            "autotermination_minutes": 15,
+                            "autotermination_minutes": 5,
                         },
                         "action": {
                             "type": "enable_autotermination",
                             "target_id": cluster_id,
                             "params": {
-                                "autotermination_minutes": 15
+                                "autotermination_minutes": 5
                             }
                         },
                         "estimated_savings": "$20-50/month",
@@ -106,9 +118,31 @@ def perform_basic_analysis(jobs, clusters):
                         "description": f"Cluster has auto-termination enabled with {autotermination_minutes} minutes idle timeout - good practice!",
                         "resource_type": "cluster",
                         "resource_id": cluster_id,
+                        "created_at": now,
+                        "timestamp": now,
                         "estimated_savings": "Already optimized",
                         "risk": "None",
+                        "action": None,  # Informational only - no action needed
                     })
+                    # Also recommend considering terminating if has workers and high idle risk
+                    if num_workers > 0:
+                        monthly_cost = (num_workers + 1) * 0.40 * 730
+                        recommendations.append({
+                            "id": f"rec_idle_cluster_{cluster_id}",
+                            "type": "idle_cluster",
+                            "severity": "medium",
+                            "title": f"Consider terminating idle cluster: {cluster_name}",
+                            "description": f"Cluster '{cluster_name}' is running with auto-termination configured. If not actively used, it will auto-terminate. Monitor usage to ensure this cluster is needed.",
+                            "resource_type": "cluster",
+                            "resource_id": cluster_id,
+                            "created_at": now,
+                            "timestamp": now,
+                            "estimated_savings": f"${monthly_cost:.2f}/month",
+                            "estimated_savings_monthly": round(monthly_cost, 2),
+                            "estimated_savings_annual": round(monthly_cost * 12, 2),
+                            "risk": "Low - Auto-termination will handle idle clusters",
+                            "action": None,  # Informational only - no action needed
+                        })
             else:
                 # Single node cluster
                 recommendations.append({
@@ -119,6 +153,8 @@ def perform_basic_analysis(jobs, clusters):
                     "description": "Single-node cluster detected. Suitable for lightweight workloads and cost-effective.",
                     "resource_type": "cluster",
                     "resource_id": cluster_id,
+                    "created_at": now,
+                    "timestamp": now,
                     "current_config": {
                         "num_workers": 0,
                         "node_type": cluster.get("node_type_id"),
@@ -247,7 +283,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     "status": "healthy",
                     "databricks_configured": databricks_client is not None,
                     "ai_configured": ai_agent is not None,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": get_ist_time().isoformat()
                 })
             
             elif path == '/api/jobs':
@@ -400,7 +436,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     "model_serving_endpoints": len(model_serving),
                     "feature_store_tables": len(feature_store),
                     "idle_clusters": len([c for c in running_clusters if c.get("num_workers", 0) > 0]),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": get_ist_time().isoformat()
                 })
             
             elif path == '/api/recommendations':
@@ -422,7 +458,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 if not analysis_cache or not analysis_cache.get("recommendations"):
                     self._send_json_response({
                         "recommendations": [],
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": get_ist_time().isoformat(),
                         "real_time": True,
                         "message": "No analysis available. Please run analysis first.",
                         "has_analysis": False
@@ -434,7 +470,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     **analysis_cache,
                     "real_time": True,
                     "has_analysis": True,
-                    "timestamp": cache_timestamp.isoformat() if cache_timestamp else datetime.utcnow().isoformat()
+                    "timestamp": cache_timestamp.isoformat() if cache_timestamp else get_ist_time().isoformat()
                 }
                 self._send_json_response(response_data)
             
@@ -720,11 +756,11 @@ class APIHandler(BaseHTTPRequestHandler):
                     "mlflow_models_count": len(mlflow_models),
                     "model_serving_count": len(model_serving),
                     "feature_store_count": len(feature_store),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": get_ist_time().isoformat(),
                     "analysis_type": analysis_type,
                     "analysis_summary": analysis_summary
                 }
-                cache_timestamp = datetime.utcnow()
+                cache_timestamp = get_ist_time()
                 
                 self._send_json_response({
                     "recommendations": recommendations,

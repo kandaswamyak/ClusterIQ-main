@@ -4,7 +4,14 @@ import os
 import threading
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+# Configure timezone for IST (India Standard Time)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_time():
+    """Get current time in IST timezone."""
+    return datetime.now(IST)
 
 
 _STORE_PATH = os.path.join(os.path.dirname(__file__), "data", "approvals.json")
@@ -39,7 +46,7 @@ def list_recommendations(status: Optional[str] = None) -> List[Dict[str, Any]]:
 
 
 def add_recommendations(recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    now = datetime.utcnow().isoformat()
+    now = get_ist_time().isoformat()
     with _LOCK:
         items = _load()
         existing_ids = {item.get("id") for item in items if item.get("id")}
@@ -79,7 +86,7 @@ def add_recommendations(recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def update_status(rec_id: str, status: str, note: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    now = datetime.utcnow().isoformat()
+    now = get_ist_time().isoformat()
     with _LOCK:
         items = _load()
         for item in items:

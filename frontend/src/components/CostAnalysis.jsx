@@ -100,35 +100,13 @@ function CostAnalysis() {
             </div>
           </div>
 
-          {/* Idle Resources Alert */}
-          {breakdown.idle_resources.length > 0 && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold text-yellow-900">Idle Resources Consuming Cost</h3>
-                  <p className="text-sm text-yellow-800 mt-1">
-                    {breakdown.idle_resources.length} idle resource(s) are still running and costing ${breakdown.idle_resources.reduce((sum, r) => sum + r.cost, 0).toFixed(2)}/month
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {breakdown.idle_resources.map((resource, idx) => (
-                      <li key={idx} className="text-xs text-yellow-700">
-                        • {resource.name} ({resource.type}): ${resource.cost.toFixed(2)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* High Cost Resources */}
+                    {/* High Cost Resources */}
           {breakdown.high_cost_resources.length > 0 && (
             <div className="bg-white rounded-lg shadow overflow-hidden">
               <div className="bg-red-50 border-b border-red-200 p-4">
                 <h2 className="text-lg font-semibold text-red-900 flex items-center">
                   <AlertTriangle className="h-5 w-5 mr-2" />
-                  Top Cost Drivers ({breakdown.high_cost_resources.length})
+                  Top High Cost Drivers ({breakdown.high_cost_resources.length})
                 </h2>
               </div>
               <div className="divide-y divide-gray-200">

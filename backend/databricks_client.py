@@ -139,6 +139,30 @@ class DatabricksClient:
             logger.error(f"Error fetching runs for job {job_id}: {str(e)}")
             return []
     
+    def cancel_job_run(self, run_id: int) -> Dict[str, Any]:
+        """Cancel a running job.
+        
+        Args:
+            run_id: Run ID to cancel
+            
+        Returns:
+            Result dictionary
+        """
+        try:
+            url = f"{self.host}/api/2.1/jobs/runs/cancel"
+            payload = {"run_id": run_id}
+            
+            logger.info(f"Cancelling job run {run_id}")
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            logger.info(f"Successfully cancelled job run {run_id}")
+            return {"status": "success", "run_id": run_id}
+        
+        except Exception as e:
+            logger.error(f"Error cancelling job run {run_id}: {str(e)}", exc_info=True)
+            return {"status": "error", "error": str(e), "run_id": run_id}
+    
     def get_all_clusters(self) -> List[Dict[str, Any]]:
         """Fetch all clusters from Databricks workspace using REST API.
         
@@ -378,6 +402,10 @@ class DatabricksClient:
                 "action": "config_updated",
                 "config": kwargs
             }
+        except requests.exceptions.HTTPError as e:
+            error_text = e.response.text if e.response is not None else str(e)
+            logger.error(f"Error updating cluster {cluster_id} config: {error_text}", exc_info=True)
+            return {"status": "error", "error": error_text, "cluster_id": cluster_id}
         except Exception as e:
             logger.error(f"Error updating cluster {cluster_id} config: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e), "cluster_id": cluster_id}

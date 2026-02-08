@@ -15,6 +15,10 @@ function Recommendations() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
+  const [expandedResourceSections, setExpandedResourceSections] = useState({
+    jobs: false,
+    clusters: true
+  })
   const [actionState, setActionState] = useState({})
   const [itemsPerPage] = useState(20)
   const [visibleItems, setVisibleItems] = useState({}) // Track visible items per type
@@ -68,6 +72,25 @@ function Recommendations() {
 
   const recommendations = data?.recommendations || []
 
+  // Sort recommendations by date (newest first) and prioritize execution errors
+  const sortedRecommendations = [...recommendations].sort((a, b) => {
+    // Prioritize execution errors (HIGH severity)
+    const aIsExecError = a.type === 'execution_error' || (a.severity === 'high' && a.title?.includes('execution error'))
+    const bIsExecError = b.type === 'execution_error' || (b.severity === 'high' && b.title?.includes('execution error'))
+    
+    if (aIsExecError && !bIsExecError) return -1
+    if (!aIsExecError && bIsExecError) return 1
+    
+    // Then by date (newest first)
+    const dateA = a.created_at || a.timestamp || new Date(0)
+    const dateB = b.created_at || b.timestamp || new Date(0)
+    
+    const timeA = typeof dateA === 'string' ? new Date(dateA).getTime() : (dateA instanceof Date ? dateA.getTime() : 0)
+    const timeB = typeof dateB === 'string' ? new Date(dateB).getTime() : (dateB instanceof Date ? dateB.getTime() : 0)
+    
+    return timeB - timeA // Newest first
+  })
+
   const handleRecommendationAction = async (recId, action) => {
     setActionState((prev) => ({
       ...prev,
@@ -104,14 +127,21 @@ function Recommendations() {
     }
   }
 
-  const groupedByType = recommendations.reduce((acc, rec) => {
-    const type = rec.type || 'other'
-    if (!acc[type]) acc[type] = []
-    acc[type].push(rec)
-    return acc
-  }, {})
+  const groupedByType = Object.fromEntries(
+    Object.entries(
+      sortedRecommendations.reduce((acc, rec) => {
+        const type = rec.type || 'other'
+        if (!acc[type]) acc[type] = []
+        acc[type].push(rec)
+        return acc
+      }, {})
+    ).sort((a, b) => {
+      const orderMap = { execution_error: 0, frequent_retries: 1, cost_leak: 2, idle_cluster: 3, optimization: 4, other: 5 }
+      return (orderMap[a[0]] || 99) - (orderMap[b[0]] || 99)
+    })
+  )
 
-  const groupedBySeverity = recommendations.reduce((acc, rec) => {
+  const groupedBySeverity = sortedRecommendations.reduce((acc, rec) => {
     const severity = rec.severity || 'low'
     if (!acc[severity]) acc[severity] = []
     acc[severity].push(rec)
@@ -275,52 +305,145 @@ function Recommendations() {
             )
           })()}
 
+          {/* Segregated Job and Cluster Optimization Sections */}
           <div className="space-y-6">
-            {Object.entries(groupedByType).map(([type, recs]) => {
-              const currentVisible = visibleItems[type] || itemsPerPage
-              const displayedRecs = recs.slice(0, currentVisible)
-              const hasMore = recs.length > currentVisible
-
+            {/* Job Optimization Section */}
+            {(() => {
+              // Filter job recommendations, excluding auto-healable types (shown in Self Healing)
+              const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error']
+              const jobRecs = sortedRecommendations.filter(rec => 
+                rec.resource_type === 'job' && !autoHealableTypes.includes(rec.type)
+              )
+              if (jobRecs.length === 0) return null
+              
+              const isExpanded = expandedResourceSections.jobs
+              const currentVisible = visibleItems['jobs'] || itemsPerPage
+              const displayedRecs = jobRecs.slice(0, currentVisible)
+              const hasMore = jobRecs.length > currentVisible
+              
               return (
-                <div key={type} className="dxc-card">
-                  <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-semibold text-gray-900 capitalize">
-                      {type.replace('_', ' ')} ({recs.length})
-                    </h2>
-                    {recs.length > itemsPerPage && (
-                      <span className="text-sm text-gray-500">
-                        Showing {displayedRecs.length} of {recs.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="space-y-3">
-                    {displayedRecs.map((rec) => (
-                      <RecommendationCard
-                        key={rec.id}
-                        recommendation={rec}
-                        isExpanded={expandedId === rec.id}
-                        onToggle={() => setExpandedId(expandedId === rec.id ? null : rec.id)}
-                        onAction={handleRecommendationAction}
-                        actionState={actionState[rec.id]}
-                      />
-                    ))}
-                  </div>
-                  {hasMore && (
-                    <div className="mt-6 text-center">
-                      <button
-                        onClick={() => setVisibleItems(prev => ({
-                          ...prev,
-                          [type]: currentVisible + itemsPerPage
-                        }))}
-                        className="dxc-button-secondary"
-                      >
-                        Show More ({recs.length - currentVisible} remaining)
-                      </button>
+                <div key="jobs" className="dxc-card border-l-4 border-blue-600">
+                  <button
+                    onClick={() => setExpandedResourceSections(prev => ({
+                      ...prev,
+                      jobs: !prev.jobs
+                    }))}
+                    className="w-full flex justify-between items-center mb-6 hover:bg-blue-50 p-3 rounded transition"
+                  >
+                    <div className="text-left">
+                      <h2 className="text-xl font-semibold text-gray-900">
+                        📊 Job Optimization ({jobRecs.length})
+                      </h2>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Performance and reliability improvements for jobs
+                      </p>
                     </div>
+                    <span className="text-2xl text-blue-600">
+                      {isExpanded ? '▼' : '▶'}
+                    </span>
+                  </button>
+                  
+                  {isExpanded && (
+                    <>
+                      <div className="space-y-3 mb-6">
+                        {displayedRecs.map((rec) => (
+                          <RecommendationCard
+                            key={rec.id}
+                            recommendation={rec}
+                            isExpanded={expandedId === rec.id}
+                            onToggle={() => setExpandedId(expandedId === rec.id ? null : rec.id)}
+                            onAction={handleRecommendationAction}
+                            actionState={actionState[rec.id]}
+                          />
+                        ))}
+                      </div>
+                      {hasMore && (
+                        <div className="text-center">
+                          <button
+                            onClick={() => setVisibleItems(prev => ({
+                              ...prev,
+                              jobs: currentVisible + itemsPerPage
+                            }))}
+                            className="dxc-button-secondary"
+                          >
+                            Show More ({jobRecs.length - currentVisible} remaining)
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )
-            })}
+            })()}
+
+            {/* Cluster Optimization Section */}
+            {(() => {
+              // Filter cluster recommendations, excluding auto-healable types (shown in Self Healing)
+              const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error']
+              const clusterRecs = sortedRecommendations.filter(rec => 
+                rec.resource_type === 'cluster' && !autoHealableTypes.includes(rec.type)
+              )
+              if (clusterRecs.length === 0) return null
+              
+              const isExpanded = expandedResourceSections.clusters
+              const currentVisible = visibleItems['clusters'] || itemsPerPage
+              const displayedRecs = clusterRecs.slice(0, currentVisible)
+              const hasMore = clusterRecs.length > currentVisible
+              
+              return (
+                <div key="clusters" className="dxc-card border-l-4 border-purple-600">
+                  <button
+                    onClick={() => setExpandedResourceSections(prev => ({
+                      ...prev,
+                      clusters: !prev.clusters
+                    }))}
+                    className="w-full flex justify-between items-center mb-6 hover:bg-purple-50 p-3 rounded transition"
+                  >
+                    <div className="text-left">
+                      <h2 className="text-xl font-semibold text-gray-900">
+                        🖥️ Cluster Optimization ({clusterRecs.length})
+                      </h2>
+                      <p className="text-sm text-purple-700 mt-1">
+                        Cost savings and resource efficiency for clusters
+                      </p>
+                    </div>
+                    <span className="text-2xl text-purple-600">
+                      {isExpanded ? '▼' : '▶'}
+                    </span>
+                  </button>
+                  
+                  {isExpanded && (
+                    <>
+                      <div className="space-y-3 mb-6">
+                        {displayedRecs.map((rec) => (
+                          <RecommendationCard
+                            key={rec.id}
+                            recommendation={rec}
+                            isExpanded={expandedId === rec.id}
+                            onToggle={() => setExpandedId(expandedId === rec.id ? null : rec.id)}
+                            onAction={handleRecommendationAction}
+                            actionState={actionState[rec.id]}
+                          />
+                        ))}
+                      </div>
+                      {hasMore && (
+                        <div className="text-center">
+                          <button
+                            onClick={() => setVisibleItems(prev => ({
+                              ...prev,
+                              clusters: currentVisible + itemsPerPage
+                            }))}
+                            className="dxc-button-secondary"
+                          >
+                            Show More ({clusterRecs.length - currentVisible} remaining)
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         </>
       )}
@@ -329,13 +452,15 @@ function Recommendations() {
 }
 
 function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, actionState }) {
+  const severity = recommendation.severity || 'low'
+  const recType = recommendation.type || 'other'
+  const isExecutionError = recType === 'execution_error'
+  
   const severityColors = {
-    high: 'border-red-500 bg-red-50',
+    high: isExecutionError ? 'border-red-500 bg-red-50' : 'border-red-500 bg-red-50',
     medium: 'border-yellow-500 bg-yellow-50',
     low: 'border-blue-500 bg-blue-50',
   }
-
-  const severity = recommendation.severity || 'low'
   const colorClass = severityColors[severity] || severityColors.low
 
   const formatMoney = (value) => {
@@ -400,6 +525,16 @@ function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, ac
               >
                 {severity.toUpperCase()}
               </span>
+              {isExecutionError && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 bg-red-600 text-white">
+                  EXECUTION ERROR
+                </span>
+              )}
+              {recommendation.type === 'frequent_retries' && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 bg-orange-600 text-white">
+                  FREQUENT RETRIES
+                </span>
+              )}
             </div>
             {recommendation.resource_name && (
               <p className="text-xs text-gray-500 truncate">
@@ -433,36 +568,129 @@ function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, ac
         <div className="px-4 pb-4 space-y-4 border-t pt-4">
           {/* What's the Issue - Description */}
           {recommendation.description && (
-            <div className="bg-blue-50 border-l-4 border-blue-500 rounded-r-lg p-4">
-              <h4 className="text-sm font-bold text-blue-900 mb-2 flex items-center">
-                <span className="mr-2">📋</span> What's the Issue?
+            <div className={`border-l-4 rounded-r-lg p-4 ${
+              recommendation.type === 'execution_error' 
+                ? 'bg-red-50 border-red-500' 
+                : recommendation.type === 'frequent_retries'
+                ? 'bg-orange-50 border-orange-500'
+                : 'bg-blue-50 border-blue-500'
+            }`}>
+              <h4 className={`text-sm font-bold mb-2 flex items-center ${
+                recommendation.type === 'execution_error' 
+                  ? 'text-red-900' 
+                  : recommendation.type === 'frequent_retries'
+                  ? 'text-orange-900'
+                  : 'text-blue-900'
+              }`}>
+                <span className="mr-2">
+                  {recommendation.type === 'execution_error' ? '🔴' : 
+                   recommendation.type === 'frequent_retries' ? '🔄' : '📋'}
+                </span> 
+                {recommendation.type === 'execution_error' ? 'Execution Error Details' : 
+                 recommendation.type === 'frequent_retries' ? 'Retry Pattern Details' : 
+                 "What's the Issue?"}
               </h4>
               <p className="text-sm text-gray-700 leading-relaxed">{recommendation.description}</p>
+              
+              {/* Show execution error specific details */}
+              {recommendation.type === 'execution_error' && recommendation.details && (
+                <div className="mt-3 pt-3 border-t border-red-200 space-y-2">
+                  {recommendation.details.run_id && (
+                    <div className="text-xs text-red-800">
+                      <span className="font-semibold">Run ID:</span> {recommendation.details.run_id}
+                    </div>
+                  )}
+                  {recommendation.details.cluster_id && (
+                    <div className="text-xs text-red-800">
+                      <span className="font-semibold">Cluster ID:</span> <code className="bg-red-100 px-2 py-1 rounded">{recommendation.details.cluster_id}</code>
+                    </div>
+                  )}
+                  {recommendation.details.error_type && (
+                    <div className="text-xs text-red-800">
+                      <span className="font-semibold">Error Type:</span> <code className="bg-red-100 px-2 py-1 rounded">{recommendation.details.error_type}</code>
+                    </div>
+                  )}
+                  {recommendation.details.action_description && (
+                    <div className="text-xs text-red-800 mt-2">
+                      <span className="font-semibold">Required Action:</span> {recommendation.details.action_description}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Show frequent retry specific details */}
+              {recommendation.type === 'frequent_retries' && recommendation.details && (
+                <div className="mt-3 pt-3 border-t border-orange-200 space-y-2">
+                  {recommendation.details.total_retries && (
+                    <div className="text-xs text-orange-800">
+                      <span className="font-semibold">Total Retries:</span> {recommendation.details.total_retries} retries detected
+                    </div>
+                  )}
+                  {recommendation.details.runs_with_retries && (
+                    <div className="text-xs text-orange-800">
+                      <span className="font-semibold">Affected Runs:</span> {recommendation.details.runs_with_retries} out of 5 recent runs
+                    </div>
+                  )}
+                  {recommendation.details.recommendation && (
+                    <div className="text-xs text-orange-800 mt-2">
+                      <span className="font-semibold">Recommendation:</span> {recommendation.details.recommendation}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Cost Savings Summary */}
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-400 rounded-lg p-4">
-            <h4 className="text-sm font-bold text-green-900 mb-3 flex items-center">
-              <span className="mr-2">💰</span> ClusterIQ recommended Savings
-            </h4>
-            
-            {/* Clear savings summary */}
-            <div className="bg-green-600 text-white rounded-lg p-4">
-              <p className="text-sm font-semibold">
-                ✅ By clicking "Apply", you'll automatically save{' '}
-                <span className="text-xl font-bold">{savingsAmount}</span>
-                {' '}per year without any negative impact.
-              </p>
-            </div>
-
-            {confidenceDisplay && (
-              <div className="mt-3 text-xs font-semibold text-blue-700 bg-blue-100 px-3 py-2 rounded-md">
-                🔎 Confidence score: {confidenceDisplay}
+          {/* Impact Summary - Execution Error vs Cost Savings */}
+          {isExecutionError ? (
+            <div className="bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-400 rounded-lg p-4">
+              <h4 className="text-sm font-bold text-red-900 mb-3 flex items-center">
+                <span className="mr-2">🚨</span> Fix Execution Error
+              </h4>
+              
+              <div className="bg-red-600 text-white rounded-lg p-4 mb-3">
+                <p className="text-sm font-semibold">
+                  ✅ By clicking "Apply", ClusterIQ will:
+                </p>
+                <ul className="text-xs mt-2 space-y-1 ml-4">
+                  <li>🔄 Automatically restart the failed cluster</li>
+                  <li>✨ Fix the RunExecutionError</li>
+                  <li>📊 Allow your job to run successfully</li>
+                  <li>⏱️ Prevent further job failures</li>
+                </ul>
               </div>
-            )}
+              
+              {confidenceDisplay && (
+                <div className="mt-3 text-xs font-semibold text-red-700 bg-red-100 px-3 py-2 rounded-md">
+                  🔎 Detection Confidence: {confidenceDisplay}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-400 rounded-lg p-4">
+              <h4 className="text-sm font-bold text-green-900 mb-3 flex items-center">
+                <span className="mr-2">💰</span> ClusterIQ recommended Savings
+              </h4>
+              
+              {/* Clear savings summary */}
+              <div className="bg-green-600 text-white rounded-lg p-4">
+                <p className="text-sm font-semibold">
+                  ✅ By clicking "Apply", you'll automatically save{' '}
+                  <span className="text-xl font-bold">{savingsAmount}</span>
+                  {' '}per year without any negative impact.
+                </p>
+              </div>
+
+              {confidenceDisplay && (
+                <div className="mt-3 text-xs font-semibold text-blue-700 bg-blue-100 px-3 py-2 rounded-md">
+                  🔎 Confidence score: {confidenceDisplay}
+                </div>
+              )}
+            </div>
+          )}
             
-            {/* Additional Context */}
+          {/* Additional Context */}
+          {!isExecutionError && (
             <div className="mt-4 pt-4 border-t border-green-200">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {(recommendation.issue_if_not_applied || recommendation.risk_level) && (
@@ -483,7 +711,7 @@ function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, ac
                 )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-3 pt-3 border-t">

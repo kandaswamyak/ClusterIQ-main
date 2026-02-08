@@ -1,10 +1,11 @@
 """Flask backend for ClusterIQ using direct HTTP requests."""
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import re
 import logging
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 
 from config import settings
 from databricks_client import DatabricksClient
@@ -12,6 +13,13 @@ from ai_agent import ClusterIQAgent
 from cost_calculator import cost_calculator
 from approval_store import add_recommendations, list_recommendations, update_status, get_recommendation
 from logs_manager import log_manager, setup_logging
+
+# Configure timezone for IST (India Standard Time)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_time():
+    """Get current time in IST timezone."""
+    return datetime.now(IST)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +60,19 @@ try:
         logger.info("AI agent initialization deferred until first use")
 except Exception as e:
     logger.error(f"Error during startup: {str(e)}")
+
+
+def _parse_event_time(value: Any) -> Optional[datetime]:
+    """Parse event timestamp to datetime object."""
+    if value is None:
+        return None
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+    if timestamp > 1e12:
+        timestamp /= 1000
+    return datetime.fromtimestamp(timestamp, tz=IST)
 
 
 def ensure_ai_agent():
@@ -103,7 +124,7 @@ def health_check():
         "status": "healthy",
         "databricks_configured": databricks_client is not None,
         "ai_configured": ai_agent is not None,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_time().isoformat()
     })
 
 
@@ -138,15 +159,16 @@ def get_job_runs(job_id):
 
 @app.route("/api/clusters", methods=["GET"])
 def get_clusters():
-    """Fetch all Databricks clusters."""
+    """Fetch all active Databricks clusters (excludes terminated clusters)."""
     if not databricks_client:
         return jsonify({"error": "Databricks client not configured"}), 503
     
     try:
         logger.info("API: Fetching clusters...")
-        clusters = databricks_client.get_all_clusters()
-        logger.info(f"API: Returning {len(clusters)} clusters")
-        return jsonify(clusters)
+        all_clusters = databricks_client.get_all_clusters()
+        # Return all clusters (frontend will handle display differently for terminated ones)
+        logger.info(f"API: Returning {len(all_clusters)} clusters")
+        return jsonify(all_clusters)
     except Exception as e:
         logger.error(f"Error fetching clusters: {str(e)}", exc_info=True)
         return jsonify([{"error": str(e), "message": "Failed to fetch clusters"}]), 500
@@ -244,6 +266,322 @@ def terminate_cluster(cluster_id):
         }), 500
 
 
+def generate_execution_error_recommendations(jobs):
+    """Generate recommendations for jobs with execution errors.
+    
+    Args:
+        jobs: List of job dictionaries
+        
+    Returns:
+        List of recommendation dictionaries
+    """
+    recommendations = []
+    
+    try:
+        for job in jobs:
+            job_id = job.get("job_id")
+            job_name = job.get("settings", {}).get("name") or job.get("job_name", "Unknown")
+            
+            # Check for recent failed runs
+            try:
+                if databricks_client:
+                    # Get recent runs for this job
+                    runs_response = databricks_client.get_job_runs(job_id, limit=5)
+                    if isinstance(runs_response, dict):
+                        if runs_response.get("status") != "success":
+                            continue
+                        runs = runs_response.get("runs", [])
+                    else:
+                        runs = runs_response or []
+                    
+                    if not runs:
+                        continue
+                    
+                    # Look for execution errors
+                    for run in runs:
+                            state = run.get("state", {})
+                            life_cycle_state = state.get("life_cycle_state", "")
+                            result_state = state.get("result_state", "")
+                            state_message = state.get("state_message", "")
+                            
+                            # Check for execution errors
+                            if result_state in ["FAILED", "TIMEDOUT", "CANCELED"] and (
+                                "RunExecutionError" in state_message or 
+                                "execution error" in state_message.lower() or
+                                "cluster.*failed" in state_message.lower() or
+                                "ClusterNotFound" in state_message
+                            ):
+                                run_id = run.get("run_id")
+                                cluster_instance = run.get("cluster_instance", {})
+                                cluster_id = cluster_instance.get("cluster_id", "unknown")
+                                
+                                # Create recommendation to fix execution error
+                                rec_id = f"rec_exec_error_{job_id}_{run_id}"
+                                
+                                # Determine the root cause and action
+                                action_type = "restart_cluster"
+                                action_description = "Restart the cluster to fix execution errors"
+                                
+                                if "ClusterNotFound" in state_message:
+                                    action_type = "recreate_cluster"
+                                    action_description = "Cluster not found - needs recreation"
+                                elif "ClusterTerminated" in state_message:
+                                    action_type = "restart_cluster"
+                                    action_description = "Cluster terminated unexpectedly - restart needed"
+                                
+                                recommendations.append({
+                                    "id": rec_id,
+                                    "type": "execution_error",
+                                    "severity": "high",
+                                    "title": f"Fix execution error: {job_name}",
+                                    "description": f"Job '{job_name}' failed with RunExecutionError: {state_message[:200]}. Cluster: {cluster_id}",
+                                    "resource_type": "job",
+                                    "resource_id": job_id,
+                                    "resource_name": job_name,
+                                    "estimated_savings": "Prevents job failures",
+                                    "risk": "Low - Automated restart",
+                                    "confidence_score": 0.85,
+                                    "action": {
+                                        "type": action_type,
+                                        "target_id": cluster_id,
+                                        "params": {
+                                            "job_id": job_id,
+                                            "run_id": run_id,
+                                            "error_message": state_message
+                                        }
+                                    },
+                                    "details": {
+                                        "run_id": run_id,
+                                        "cluster_id": cluster_id,
+                                        "error_type": "RunExecutionError",
+                                        "state_message": state_message,
+                                        "action_description": action_description
+                                    },
+                                    "created_at": get_ist_time().isoformat(),
+                                    "timestamp": get_ist_time().isoformat()
+                                })
+                                
+                                logger.info(f"Created execution error recommendation for job {job_name} (run {run_id})")
+                                break  # Only one recommendation per job
+                                
+            except Exception as job_error:
+                logger.debug(f"Could not check runs for job {job_id}: {job_error}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error generating execution error recommendations: {str(e)}")
+    
+    return recommendations
+
+
+def generate_stuck_pending_job_recommendations(jobs):
+    """Generate recommendations for jobs stuck in PENDING state for too long.
+    
+    Args:
+        jobs: List of job dictionaries
+        
+    Returns:
+        List of recommendation dictionaries
+    """
+    recommendations = []
+    PENDING_THRESHOLD_MINUTES = 5  # Alert if pending for more than 5 minutes
+    
+    try:
+        current_time_ms = int(time.time() * 1000)
+        
+        for job in jobs:
+            job_id = job.get("job_id")
+            job_name = job.get("settings", {}).get("name") or job.get("job_name", "Unknown")
+            
+            # Check for runs stuck in PENDING state
+            try:
+                if databricks_client:
+                    # Get active/recent runs for this job
+                    runs_response = databricks_client.get_job_runs(job_id, limit=10)
+                    if isinstance(runs_response, dict):
+                        if runs_response.get("status") != "success":
+                            continue
+                        runs = runs_response.get("runs", [])
+                    else:
+                        runs = runs_response or []
+                    
+                    if not runs:
+                        continue
+                    
+                    # Look for PENDING runs that exceed threshold
+                    for run in runs:
+                        state = run.get("state", {})
+                        life_cycle_state = state.get("life_cycle_state", "")
+                        
+                        # Check if job is stuck in PENDING state
+                        if life_cycle_state == "PENDING":
+                            run_id = run.get("run_id")
+                            start_time = run.get("start_time")
+                            
+                            if not start_time:
+                                continue
+                            
+                            # Calculate how long it's been pending
+                            pending_duration_ms = current_time_ms - start_time
+                            pending_duration_minutes = pending_duration_ms / 1000 / 60
+                            
+                            # If pending for more than threshold, create recommendation
+                            if pending_duration_minutes > PENDING_THRESHOLD_MINUTES:
+                                cluster_instance = run.get("cluster_instance", {})
+                                cluster_id = cluster_instance.get("cluster_id", "unknown")
+                                
+                                rec_id = f"rec_stuck_pending_{job_id}_{run_id}"
+                                
+                                recommendations.append({
+                                    "id": rec_id,
+                                    "type": "stuck_pending_job",
+                                    "severity": "high",
+                                    "title": f"Job stuck in PENDING: {job_name}",
+                                    "description": f"Job '{job_name}' (Run {run_id}) has been stuck in PENDING state for {pending_duration_minutes:.1f} minutes. Normal runs complete in <1 second. This may indicate cluster startup issues or resource constraints.",
+                                    "resource_type": "job",
+                                    "resource_id": job_id,
+                                    "resource_name": job_name,
+                                    "estimated_savings": "Prevents resource waste",
+                                    "risk": "Low - Cancel stuck run",
+                                    "confidence_score": 0.90,
+                                    "action": {
+                                        "type": "cancel_job_run",
+                                        "target_id": run_id,
+                                        "params": {
+                                            "job_id": job_id,
+                                            "run_id": run_id,
+                                            "reason": f"Stuck in PENDING state for {pending_duration_minutes:.1f} minutes"
+                                        }
+                                    },
+                                    "details": {
+                                        "run_id": run_id,
+                                        "job_id": job_id,
+                                        "cluster_id": cluster_id,
+                                        "pending_duration_minutes": pending_duration_minutes,
+                                        "start_time": start_time,
+                                        "threshold_minutes": PENDING_THRESHOLD_MINUTES,
+                                        "state": life_cycle_state
+                                    },
+                                    "created_at": get_ist_time().isoformat(),
+                                    "timestamp": get_ist_time().isoformat()
+                                })
+                                
+                                logger.info(f"Created stuck PENDING recommendation for job {job_name} (run {run_id}) - pending for {pending_duration_minutes:.1f} minutes")
+                                break  # Only one recommendation per job
+                                
+            except Exception as job_error:
+                logger.debug(f"Could not check PENDING runs for job {job_id}: {job_error}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error generating stuck PENDING job recommendations: {str(e)}")
+    
+    return recommendations
+
+
+def generate_frequent_retry_recommendations(jobs):
+    """Generate recommendations for jobs with frequent retries.
+    
+    Args:
+        jobs: List of job dictionaries
+        
+    Returns:
+        List of recommendation dictionaries
+    """
+    recommendations = []
+    
+    try:
+        for job in jobs:
+            job_id = job.get("job_id")
+            job_name = job.get("settings", {}).get("name") or job.get("job_name", "Unknown")
+            
+            # Check for frequent retries in recent runs
+            try:
+                if databricks_client:
+                    # Get recent runs for this job
+                    runs_response = databricks_client.get_job_runs(job_id, limit=10)
+                    if runs_response.get("status") == "success":
+                        runs = runs_response.get("runs", [])
+                        
+                        # Count retries across recent runs
+                        total_retries = 0
+                        runs_with_retries = 0
+                        retry_details = []
+                        
+                        for run in runs[:5]:  # Check last 5 runs
+                            run_id = run.get("run_id")
+                            tasks = run.get("tasks", [])
+                            
+                            # Check task attempts
+                            run_retry_count = 0
+                            for task in tasks:
+                                attempt_number = task.get("attempt_number", 0)
+                                if attempt_number > 0:
+                                    run_retry_count += attempt_number
+                            
+                            # Also check run-level retries
+                            number_in_job = run.get("number_in_job", 0)
+                            if number_in_job > 1 and run_retry_count == 0:
+                                # This might be a job-level retry
+                                pass
+                            
+                            if run_retry_count > 0:
+                                total_retries += run_retry_count
+                                runs_with_retries += 1
+                                retry_details.append({
+                                    "run_id": run_id,
+                                    "retry_count": run_retry_count
+                                })
+                        
+                        # If more than 2 out of 5 runs had retries, or total retries > 5
+                        if runs_with_retries >= 2 or total_retries >= 5:
+                            rec_id = f"rec_frequent_retry_{job_id}"
+                            
+                            # Calculate cost impact
+                            estimated_savings = total_retries * 50  # Rough estimate: $50 per retry
+                            
+                            recommendations.append({
+                                "id": rec_id,
+                                "type": "frequent_retries",
+                                "severity": "medium",
+                                "title": f"Optimize job: {job_name}",
+                                "description": f"Job '{job_name}' shows frequent retries ({total_retries} retries in {runs_with_retries} out of 5 recent runs). This indicates configuration issues or resource constraints.",
+                                "resource_type": "job",
+                                "resource_id": job_id,
+                                "resource_name": job_name,
+                                "estimated_savings": estimated_savings,
+                                "risk": "Low - Analysis only",
+                                "confidence_score": 0.75,
+                                "action": {
+                                    "type": "analyze_job",
+                                    "target_id": job_id,
+                                    "params": {
+                                        "total_retries": total_retries,
+                                        "runs_with_retries": runs_with_retries
+                                    }
+                                },
+                                "details": {
+                                    "total_retries": total_retries,
+                                    "runs_with_retries": runs_with_retries,
+                                    "retry_details": retry_details,
+                                    "recommendation": "Review job configuration, increase cluster size, or optimize code to reduce retry frequency"
+                                },
+                                "created_at": get_ist_time().isoformat(),
+                                "timestamp": get_ist_time().isoformat()
+                            })
+                            
+                            logger.info(f"Created frequent retry recommendation for job {job_name} ({total_retries} retries)")
+                                
+            except Exception as job_error:
+                logger.debug(f"Could not check retries for job {job_id}: {job_error}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error generating frequent retry recommendations: {str(e)}")
+    
+    return recommendations
+
+
 def generate_autotermination_recommendations(clusters):
     """Generate recommendations for clusters without auto-termination enabled.
     
@@ -296,12 +634,12 @@ def generate_autotermination_recommendations(clusters):
                             "type": "enable_autotermination",
                             "target_id": cluster_id,
                             "params": {
-                                "autotermination_minutes": 15
+                                "autotermination_minutes": 5
                             }
                         },
                         "status": "PENDING",
-                        "created_at": datetime.utcnow().isoformat(),
-                        "updated_at": datetime.utcnow().isoformat(),
+                        "created_at": get_ist_time().isoformat(),
+                        "updated_at": get_ist_time().isoformat(),
                         "status_note": "Auto-detected: No auto-termination configured"
                     })
                     
@@ -355,12 +693,16 @@ def analyze_jobs_and_clusters():
                         "recommendations_count": 0,
                         "analysis_type": "timeout",
                         "analysis_summary": "Analysis timed out. Please check your Databricks connection.",
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": get_ist_time().isoformat()
                     }
                 })
         
         jobs = fetch_results["jobs"]
-        clusters = fetch_results["clusters"]
+        all_clusters = fetch_results["clusters"]
+        
+        # Filter out terminated clusters for analysis
+        clusters = [c for c in all_clusters if c.get("state", "").upper() not in {"TERMINATED", "TERMINATING"}]
+        logger.info(f"Analyzing {len(clusters)} active clusters (filtered from {len(all_clusters)} total)")
         
         recommendations = []
         analysis_type = "rule-based"
@@ -440,6 +782,42 @@ def analyze_jobs_and_clusters():
                 logger.info(f"Added {len(autotermination_recs)} auto-termination recommendations")
         except Exception as auto_error:
             logger.warning(f"Error generating auto-termination recommendations: {auto_error}")
+        
+        # Add execution error recommendations to help fix job failures
+        try:
+            execution_error_recs = generate_execution_error_recommendations(jobs)
+            if execution_error_recs:
+                existing_ids = {rec.get("id") for rec in recommendations if rec.get("id")}
+                for rec in execution_error_recs:
+                    if rec.get("id") not in existing_ids:
+                        recommendations.append(rec)
+                logger.info(f"Added {len(execution_error_recs)} execution error recommendations")
+        except Exception as exec_error:
+            logger.warning(f"Error generating execution error recommendations: {exec_error}")
+        
+        # Add frequent retry recommendations
+        try:
+            retry_recs = generate_frequent_retry_recommendations(jobs)
+            if retry_recs:
+                existing_ids = {rec.get("id") for rec in recommendations if rec.get("id")}
+                for rec in retry_recs:
+                    if rec.get("id") not in existing_ids:
+                        recommendations.append(rec)
+                logger.info(f"Added {len(retry_recs)} frequent retry recommendations")
+        except Exception as retry_error:
+            logger.warning(f"Error generating frequent retry recommendations: {retry_error}")
+        
+        # Add stuck PENDING job recommendations
+        try:
+            stuck_pending_recs = generate_stuck_pending_job_recommendations(jobs)
+            if stuck_pending_recs:
+                existing_ids = {rec.get("id") for rec in recommendations if rec.get("id")}
+                for rec in stuck_pending_recs:
+                    if rec.get("id") not in existing_ids:
+                        recommendations.append(rec)
+                logger.info(f"Added {len(stuck_pending_recs)} stuck PENDING job recommendations")
+        except Exception as pending_error:
+            logger.warning(f"Error generating stuck PENDING job recommendations: {pending_error}")
         
         # Try optional AI analysis (with tight timeout, non-blocking)
         ai_agent_instance = ensure_ai_agent()
@@ -529,6 +907,12 @@ def analyze_jobs_and_clusters():
         for rec in recommendations:
             if rec.get("resource_type") != "cluster":
                 continue
+            
+            # Skip action assignment for informational recommendations
+            rec_type = rec.get("type", "")
+            if rec_type in ["idle_cluster", "optimization"]:
+                continue
+            
             action = rec.get("action")
             if isinstance(action, dict) and action.get("type") and action.get("target_id"):
                 continue
@@ -545,7 +929,7 @@ def analyze_jobs_and_clusters():
             rec["action"] = {
                 "type": "enable_autotermination",
                 "target_id": target_id,
-                "params": {"autotermination_minutes": 15}
+                "params": {"autotermination_minutes": 5}
             }
         
         # Update cache
@@ -554,11 +938,11 @@ def analyze_jobs_and_clusters():
             "recommendations": recommendations,
             "jobs_count": len(jobs),
             "clusters_count": len(clusters),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_time().isoformat(),
             "analysis_type": analysis_type,
             "analysis_summary": analysis_summary
         }
-        cache_timestamp = datetime.utcnow()
+        cache_timestamp = get_ist_time()
 
         # Persist recommendations to approval store for actions
         try:
@@ -608,14 +992,14 @@ def get_recommendations_realtime():
             **analysis_cache,
             "real_time": True,
             "has_analysis": True,
-            "timestamp": cache_timestamp.isoformat() if cache_timestamp else datetime.utcnow().isoformat()
+            "timestamp": cache_timestamp.isoformat() if cache_timestamp else get_ist_time().isoformat()
         })
     
     # If no cache, check if services are configured
     if not databricks_client:
         return jsonify({
             "recommendations": [],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_time().isoformat(),
             "real_time": True,
             "has_analysis": False,
             "message": "No analysis available. Databricks client not configured. Please configure Databricks credentials and run an analysis first."
@@ -624,7 +1008,7 @@ def get_recommendations_realtime():
     if not ai_agent:
         return jsonify({
             "recommendations": [],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_time().isoformat(),
             "real_time": True,
             "has_analysis": False,
             "message": "No analysis available. AI agent not configured. Please configure OpenAI/Azure OpenAI credentials and run an analysis first."
@@ -633,7 +1017,7 @@ def get_recommendations_realtime():
     # If no cache but services are configured, return message to run analysis
     return jsonify({
         "recommendations": [],
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_ist_time().isoformat(),
         "real_time": True,
         "has_analysis": False,
         "message": "No analysis available. Please run an analysis first."
@@ -666,8 +1050,18 @@ def get_stats():
                 return False
             state_upper = str(state).upper()
             return state_upper in {"RUNNING", "RESIZING", "STARTING", "RESTARTING"}
+        
+        def _is_active_cluster(cluster: Dict[str, Any]) -> bool:
+            """Check if cluster is active (not terminated)"""
+            state = cluster.get("state")
+            if not state:
+                return True  # Include unknown states
+            state_upper = str(state).upper()
+            return state_upper not in {"TERMINATED", "TERMINATING"}
 
-        running_clusters = [c for c in clusters if _is_running_cluster(c)]
+        # Filter out terminated clusters
+        active_clusters = [c for c in clusters if _is_active_cluster(c)]
+        running_clusters = [c for c in active_clusters if _is_running_cluster(c)]
         
         # Get all compute resource types (with individual error handling)
         try:
@@ -732,12 +1126,12 @@ def get_stats():
             logger.warning(f"Error getting feature store tables: {e}")
             feature_store = []
         
-        logger.info(f"Stats: {len(jobs)} jobs, {len(clusters)} clusters, {len(running_clusters)} running")
+        logger.info(f"Stats: {len(jobs)} jobs, {len(active_clusters)} active clusters, {len(running_clusters)} running")
         
         return jsonify({
             # Basic stats
             "total_jobs": len(jobs),
-            "total_clusters": len(clusters),
+            "total_clusters": len(active_clusters),
             "running_clusters": len(running_clusters),
             "idle_clusters": len([c for c in running_clusters if c.get("num_workers", 0) > 0]),
             
@@ -756,7 +1150,7 @@ def get_stats():
             "model_serving_endpoints": len(model_serving),
             "feature_store_tables": len(feature_store),
             
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_ist_time().isoformat()
         })
     
     except Exception as e:
@@ -846,7 +1240,7 @@ def get_summary():
         clusters_analyzed = analysis_cache.get("clusters_count", 0) if analysis_cache else 0
 
         # Approval metrics for last 30 days
-        now = datetime.utcnow()
+        now = get_ist_time()
         window_start = now - timedelta(days=30)
         approvals = list_recommendations()
         recent_approvals = []
@@ -1176,9 +1570,20 @@ def analyze_delta_tables():
                         "type": "COST_OPTIMIZATION",
                         "severity": "HIGH",
                         "title": "Right-size cluster memory",
-                        "description": "Cluster cluster_1 is oversized for workload",
+                        "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended: Standard_D2ds_v5 (8GB, 2 cores)",
                         "estimated_savings": 500,
-                        "action": "Reduce cluster memory configuration by 50%"
+                        "resource_type": "cluster",
+                        "resource_name": "clusteriq",
+                        "resource_id": "clusteriq",
+                        "action": {
+                            "type": "resize_cluster",
+                            "target_id": "clusteriq",
+                            "params": {
+                                "node_type_id": "Standard_D2ds_v5",
+                                "driver_node_type_id": "Standard_D2ds_v5",
+                                "num_workers": 2
+                            }
+                        }
                     },
                     {
                         "type": "PERFORMANCE",
@@ -1186,7 +1591,7 @@ def analyze_delta_tables():
                         "title": "Optimize job scheduling",
                         "description": "Job execution shows frequent retries",
                         "estimated_savings": 300,
-                        "action": "Increase timeout values and implement exponential backoff"
+                        "action": None
                     }
                 ]
             }
@@ -1282,15 +1687,29 @@ def apply_recommendation(rec_id):
             return jsonify({"success": False, "error": f"Recommendation is not approved (current status: {rec.get('status')})"}), 400
         
         action = rec.get("action", {})
+        # Handle case where action is a string or not a dict
+        if not isinstance(action, dict):
+            action = {}
         action_type = action.get("type")
         target_id = action.get("target_id")
         params = action.get("params", {})
         applied_note = None
 
+        # Handle idle_cluster and informational recommendations that don't require action
+        rec_type = rec.get("type", "")
+        if rec_type in ["idle_cluster", "optimization"]:
+            # These are informational - mark as applied without taking action
+            updated = update_status(rec_id, "APPLIED", note="Recommendation noted and monitored")
+            return jsonify({
+                "success": True,
+                "message": f"Recommendation marked as applied",
+                "recommendation": updated
+            }), 200
+
         if (not action_type or not target_id) and rec.get("resource_type") == "cluster":
             target_id = rec.get("resource_id") or rec.get("resource_name")
             action_type = "enable_autotermination"
-            params = {"autotermination_minutes": 15}
+            params = {"autotermination_minutes": 5}
 
         if not action_type or not target_id:
             logger.warning(f"Recommendation {rec_id} has no actionable details. Action: {action}")
@@ -1329,7 +1748,7 @@ def apply_recommendation(rec_id):
                 return value
             return None
 
-        if action_type in {"terminate_cluster", "resize_cluster", "enable_autotermination"}:
+        if action_type in {"terminate_cluster", "resize_cluster", "enable_autotermination", "restart_cluster", "recreate_cluster"}:
             target_id = resolve_cluster_id(target_id)
 
         logger.info(f"Applying recommendation {rec_id}: {action_type} on {target_id}")
@@ -1355,41 +1774,213 @@ def apply_recommendation(rec_id):
             result = databricks_client.terminate_cluster(target_id)
         
         elif action_type == "resize_cluster":
+            node_type = params.get("node_type_id")
+            driver_node_type = params.get("driver_node_type_id")
             requested_workers = params.get("num_workers")
-            result = databricks_client.resize_cluster(
-                cluster_id=target_id,
-                num_workers=requested_workers,
-                autoscale=params.get("autoscale")
-            )
+            autoscale = params.get("autoscale")
 
-            if result.get("status") != "success":
-                error_msg = str(result.get("error", ""))
-                if "not have enough CPU cores" in error_msg and requested_workers:
-                    available_cores, requested_cores = extract_core_limits(error_msg)
-                    if available_cores and requested_cores and requested_cores > 0:
-                        adjusted_workers = max(1, int((available_cores * requested_workers) // requested_cores))
-                        if adjusted_workers < requested_workers:
-                            retry_result = databricks_client.resize_cluster(
-                                cluster_id=target_id,
-                                num_workers=adjusted_workers
-                            )
-                            if retry_result.get("status") == "success":
-                                applied_note = (
-                                    "Applied with adjusted workers due to core limits. "
-                                    f"Requested workers: {requested_workers}, "
-                                    f"available cores: {available_cores}, requested cores: {requested_cores}, "
-                                    f"applied workers: {adjusted_workers}."
-                                )
-                                result = retry_result
-                            else:
-                                result = retry_result
+            if node_type or driver_node_type:
+                update_params = {}
+                if node_type:
+                    update_params["node_type_id"] = node_type
+                if driver_node_type:
+                    update_params["driver_node_type_id"] = driver_node_type
+                if requested_workers is not None:
+                    update_params["num_workers"] = requested_workers
+                if autoscale is not None:
+                    update_params["autoscale"] = autoscale
+
+                cluster_info = databricks_client.get_cluster_info(target_id)
+                cluster_state = None
+                if cluster_info.get("status") == "success":
+                    cluster_state = cluster_info.get("cluster", {}).get("state")
+                original_state = cluster_state
+
+                # Wait for cluster to reach a stable state before proceeding
+                transitional_states = {"PENDING", "RESTARTING", "TERMINATING", "RESIZING"}
+                if cluster_state in transitional_states:
+                    wait_deadline = time.time() + 300  # 5 minutes timeout
+                    while time.time() < wait_deadline:
+                        time.sleep(10)
+                        cluster_info = databricks_client.get_cluster_info(target_id)
+                        if cluster_info.get("status") == "success":
+                            cluster_state = cluster_info.get("cluster", {}).get("state")
+                            if cluster_state not in transitional_states:
+                                break
+                    
+                    # If still in transitional state after timeout, fail gracefully
+                    if cluster_state in transitional_states:
+                        result = {
+                            "status": "error",
+                            "error": f"Cluster is in transitional state '{cluster_state}'. Please wait for cluster to stabilize and try again."
+                        }
+                        applied_note = f"Cannot resize: cluster is in {cluster_state} state"
+                        # Skip further processing
+                        node_type = None
+                        driver_node_type = None
+
+                if cluster_state and cluster_state not in {"TERMINATED"} and (node_type or driver_node_type):
+                    terminate_result = databricks_client.terminate_cluster(target_id)
+                    if terminate_result.get("status") != "success":
+                        result = terminate_result
+                    else:
+                        deadline = time.time() + 180
+                        while time.time() < deadline:
+                            latest = databricks_client.get_cluster_info(target_id)
+                            latest_state = latest.get("cluster", {}).get("state") if latest.get("status") == "success" else None
+                            if latest_state == "TERMINATED":
+                                break
+                            time.sleep(5)
+
+                result = databricks_client.update_cluster_config(
+                    cluster_id=target_id,
+                    **update_params
+                )
+
+                if result.get("status") == "success" and original_state == "RUNNING":
+                    start_result = databricks_client.start_cluster(target_id)
+                    if start_result.get("status") != "success":
+                        applied_note = (
+                            "Cluster config updated, but failed to restart automatically. "
+                            f"Start the cluster manually. Error: {start_result.get('error', 'Unknown error')}"
+                        )
+                    else:
+                        applied_note = "Cluster config updated and cluster restarted with new node type."
+            else:
+                # Wait for cluster to reach a stable state before resizing
+                cluster_info = databricks_client.get_cluster_info(target_id)
+                cluster_state = None
+                if cluster_info.get("status") == "success":
+                    cluster_state = cluster_info.get("cluster", {}).get("state")
+                
+                transitional_states = {"PENDING", "RESTARTING", "TERMINATING", "RESIZING"}
+                if cluster_state in transitional_states:
+                    wait_deadline = time.time() + 300  # 5 minutes timeout
+                    while time.time() < wait_deadline:
+                        time.sleep(10)
+                        cluster_info = databricks_client.get_cluster_info(target_id)
+                        if cluster_info.get("status") == "success":
+                            cluster_state = cluster_info.get("cluster", {}).get("state")
+                            if cluster_state not in transitional_states:
+                                break
+                    
+                    # If still in transitional state after timeout, fail gracefully
+                    if cluster_state in transitional_states:
+                        result = {
+                            "status": "error",
+                            "error": f"Cluster is in transitional state '{cluster_state}'. Please wait for cluster to stabilize and try again."
+                        }
+                        applied_note = f"Cannot resize: cluster is in {cluster_state} state"
+                
+                # Only proceed with resize if not in transitional state
+                if cluster_state not in transitional_states:
+                    result = databricks_client.resize_cluster(
+                        cluster_id=target_id,
+                        num_workers=requested_workers,
+                        autoscale=autoscale
+                    )
+
+                    if result.get("status") != "success":
+                        error_msg = str(result.get("error", ""))
+                        if "not have enough CPU cores" in error_msg and requested_workers:
+                            available_cores, requested_cores = extract_core_limits(error_msg)
+                            if available_cores and requested_cores and requested_cores > 0:
+                                adjusted_workers = max(1, int((available_cores * requested_workers) // requested_cores))
+                                if adjusted_workers < requested_workers:
+                                    retry_result = databricks_client.resize_cluster(
+                                        cluster_id=target_id,
+                                        num_workers=adjusted_workers
+                                    )
+                                    if retry_result.get("status") == "success":
+                                        applied_note = (
+                                            "Applied with adjusted workers due to core limits. "
+                                            f"Requested workers: {requested_workers}, "
+                                            f"available cores: {available_cores}, requested cores: {requested_cores}, "
+                                            f"applied workers: {adjusted_workers}."
+                                        )
+                                        result = retry_result
+                                    else:
+                                        result = retry_result
         elif action_type == "enable_autotermination":
             # Enable auto-termination on a cluster
-            autotermination_minutes = params.get("autotermination_minutes", 15)
+            autotermination_minutes = params.get("autotermination_minutes", 5)
             result = databricks_client.update_cluster_config(
                 cluster_id=target_id,
                 autotermination_minutes=autotermination_minutes
             )
+        
+        elif action_type in ["restart_cluster", "recreate_cluster"]:
+            # Restart a cluster to fix execution errors
+            logger.info(f"Restarting cluster {target_id} to fix execution error")
+            
+            # Get cluster info
+            cluster_info = databricks_client.get_cluster_info(target_id)
+            if cluster_info.get("status") != "success":
+                result = {
+                    "status": "error",
+                    "error": f"Could not get cluster info: {cluster_info.get('error', 'Unknown')}"
+                }
+            else:
+                cluster_state = cluster_info.get("cluster", {}).get("state")
+                cluster_name = cluster_info.get("cluster", {}).get("cluster_name", target_id)
+                
+                # If cluster is in error state, terminate it first
+                if cluster_state in ["FAILED", "ERROR", "TERMINATING"]:
+                    logger.info(f"Cluster {cluster_name} is in {cluster_state} state, terminating first")
+                    terminate_result = databricks_client.terminate_cluster(target_id)
+                    if terminate_result.get("status") != "success":
+                        result = terminate_result
+                    else:
+                        # Wait for termination
+                        deadline = time.time() + 60
+                        while time.time() < deadline:
+                            check = databricks_client.get_cluster_info(target_id)
+                            if check.get("cluster", {}).get("state") == "TERMINATED":
+                                break
+                            time.sleep(2)
+                elif cluster_state == "RUNNING":
+                    # Restart running cluster
+                    logger.info(f"Cluster {cluster_name} is running, restarting")
+                    databricks_client.terminate_cluster(target_id)
+                    # Wait for termination
+                    deadline = time.time() + 60
+                    while time.time() < deadline:
+                        check = databricks_client.get_cluster_info(target_id)
+                        if check.get("cluster", {}).get("state") == "TERMINATED":
+                            break
+                        time.sleep(2)
+                
+                # Start the cluster
+                logger.info(f"Starting cluster {cluster_name}")
+                start_result = databricks_client.start_cluster(target_id)
+                if start_result.get("status") == "success":
+                    result = {
+                        "status": "success",
+                        "message": f"Cluster {cluster_name} restarted successfully to fix execution error"
+                    }
+                    applied_note = f"Cluster restarted successfully. Job should now run without execution errors."
+                else:
+                    result = start_result
+        
+        elif action_type == "cancel_job_run":
+            # Cancel a stuck job run
+            run_id = params.get("run_id") or target_id
+            job_id = params.get("job_id")
+            reason = params.get("reason", "Stuck in PENDING state")
+            
+            logger.info(f"Cancelling stuck job run {run_id} (Job ID: {job_id})")
+            
+            cancel_result = databricks_client.cancel_job_run(run_id)
+            if cancel_result.get("status") == "success":
+                result = {
+                    "status": "success",
+                    "message": f"Successfully cancelled stuck job run {run_id}"
+                }
+                applied_note = f"Cancelled job run that was stuck in PENDING state. Reason: {reason}"
+                logger.info(f"Successfully cancelled stuck job run {run_id}")
+            else:
+                result = cancel_result
+                logger.error(f"Failed to cancel job run {run_id}: {cancel_result.get('error')}")
         
         if result.get("status") == "success":
             savings_label = format_estimated_savings(rec)
@@ -1761,43 +2352,122 @@ def get_health_status():
     """Get current health status of all clusters."""
     logger.info("Health check endpoint called")
     try:
-        # Get cluster list quickly without detailed health checks
-        clusters = databricks_client.get_all_clusters()
-        logger.info(f"Got {len(clusters)} clusters")
+        from health_monitor import HealthMonitor
         
-        total = len(clusters)
-        healthy_count = 0
-        unhealthy_count = 0
+        if not databricks_client:
+            return jsonify({
+                "success": False,
+                "error": "Databricks client not initialized",
+                "auto_healable": [],
+                "auto_healable_issues_count": 0
+            }), 500
         
-        for c in clusters:
-            state = c.get("state", "UNKNOWN")
-            if state == "RUNNING":
-                healthy_count += 1
-            elif state in ["FAILED", "ERROR"]:
-                unhealthy_count += 1
+        # Use health monitor to get comprehensive health data
+        monitor = HealthMonitor(databricks_client)
+        summary = monitor.get_health_summary()
+        auto_healable_issues = monitor.get_auto_healable_issues()
         
-        health_percentage = 0.0
-        if total > 0:
-            health_percentage = (healthy_count / total) * 100.0
+        idle_recommendations = []
+        now = get_ist_time().isoformat()
+        for issue_info in auto_healable_issues:
+            issue = issue_info.get("issue", {})
+            if issue.get("type") != "cluster_idle":
+                continue
+            cluster_id = issue_info.get("cluster_id")
+            cluster_name = issue_info.get("cluster_name") or "Unknown"
+            idle_recommendations.append({
+                "id": f"rec_idle_{cluster_id}",
+                "type": "idle_cluster",
+                "severity": "medium",
+                "title": f"Idle cluster detected: {cluster_name}",
+                "description": "Cluster is idle and consuming resources. Consider terminating or enabling auto-termination.",
+                "resource_type": "cluster",
+                "resource_id": cluster_id,
+                "resource_name": cluster_name,
+                "status": "PENDING",
+                "action": {
+                    "type": "enable_autotermination",
+                    "cluster_id": cluster_id,
+                    "autotermination_minutes": 5
+                },
+                "status_note": "Auto-detected from health check",
+                "created_at": now,
+                "updated_at": now
+            })
+        if idle_recommendations:
+            add_recommendations(idle_recommendations)
+
+        optimization_by_key = {}
+        recommendations = list_recommendations()
+        for rec in recommendations:
+            rec_type = (rec.get("type") or "").lower()
+            if rec_type != "cost_optimization":
+                continue
+            if rec.get("resource_type") != "cluster":
+                continue
+            if rec.get("status") != "PENDING":
+                continue
+            action = rec.get("action")
+            if action is None or action == "":
+                continue
+            cluster_id = rec.get("resource_id") or rec.get("resource_name")
+            cluster_name = rec.get("resource_name") or rec.get("resource_id") or "Unknown"
+            message = rec.get("title") or rec.get("description") or "Optimization available"
+            timestamp = rec.get("updated_at") or rec.get("created_at") or now
+            try:
+                timestamp_dt = datetime.fromisoformat(timestamp)
+            except (TypeError, ValueError):
+                timestamp_dt = datetime.min
+            key = f"{cluster_id}|{message}"
+            existing = optimization_by_key.get(key)
+            if not existing or timestamp_dt > existing["_ts"]:
+                optimization_by_key[key] = {
+                    "_ts": timestamp_dt,
+                    "cluster_id": cluster_id,
+                    "cluster_name": cluster_name,
+                    "issue_type": "optimization",
+                    "issue": {
+                        "type": "optimization",
+                        "severity": (rec.get("severity") or "medium").lower(),
+                        "message": message
+                    },
+                    "recommendation_id": rec.get("id"),
+                    "timestamp": timestamp
+                }
+
+        optimization_issues = []
+        for item in optimization_by_key.values():
+            item.pop("_ts", None)
+            optimization_issues.append(item)
+
+        combined_auto_healable = auto_healable_issues + optimization_issues
+        
+        logger.info(f"Health check: {summary['total_clusters']} total, {len(auto_healable_issues)} auto-healable issues detected")
         
         response_data = {
             "success": True,
             "summary": {
-                "total_clusters": int(total),
-                "healthy": int(healthy_count),
-                "unhealthy": int(unhealthy_count),
-                "health_percentage": round(health_percentage, 2)
+                "total_clusters": summary.get("total_clusters", 0),
+                "healthy": summary.get("healthy", 0),
+                "unhealthy": summary.get("unhealthy", 0),
+                "health_percentage": summary.get("health_percentage", 0)
             },
-            "auto_healable": [],
-            "timestamp": datetime.utcnow().isoformat()
+            "auto_healable": combined_auto_healable,
+            "auto_healable_issues_count": len(combined_auto_healable),
+            "timestamp": get_ist_time().isoformat()
         }
         
-        logger.info(f"Returning health status: {response_data}")
+        logger.info(f"Returning health status with {len(auto_healable_issues)} auto-healable issues")
         return jsonify(response_data), 200
     
     except Exception as e:
         logger.error(f"Error checking health: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "auto_healable": [],
+            "auto_healable_issues_count": 0
+        }), 500
 
 
 @app.route("/api/self-healing/run", methods=["POST"])
@@ -1846,13 +2516,35 @@ def run_self_healing():
                 logger.info(f"Checking cluster {cluster_name} ({cluster_id}): {state}")
                 
                 if state in ["FAILED", "ERROR"]:
-                    failed_clusters.append((cluster_id, cluster_name, state))
-                    diagnostics.append({
-                        "cluster_id": cluster_id,
-                        "cluster_name": cluster_name,
-                        "issue": f"Cluster is in {state} state",
-                        "action_available": "auto_restart_failed_clusters"
-                    })
+                    failure_time = None
+                    for time_key in ("terminated_time", "last_state_loss_time", "last_activity_time", "start_time"):
+                        failure_time = _parse_event_time(cluster.get(time_key))
+                        if failure_time:
+                            break
+
+                    restart_window_minutes = config.get_threshold("failed_restart_window_minutes") or 120
+                    if not failure_time:
+                        diagnostics.append({
+                            "cluster_id": cluster_id,
+                            "cluster_name": cluster_name,
+                            "issue": f"Cluster is in {state} state but no recent failure timestamp is available",
+                            "action_available": f"Auto-restart skipped (requires failure within last {restart_window_minutes} minutes)"
+                        })
+                    elif get_ist_time() - failure_time > timedelta(minutes=restart_window_minutes):
+                        diagnostics.append({
+                            "cluster_id": cluster_id,
+                            "cluster_name": cluster_name,
+                            "issue": f"Cluster is in {state} state but failure is older than {restart_window_minutes} minutes",
+                            "action_available": "Auto-restart skipped (outside restart window)"
+                        })
+                    else:
+                        failed_clusters.append((cluster_id, cluster_name, state))
+                        diagnostics.append({
+                            "cluster_id": cluster_id,
+                            "cluster_name": cluster_name,
+                            "issue": f"Cluster is in {state} state",
+                            "action_available": f"auto_restart_failed_clusters (within {restart_window_minutes} minutes)"
+                        })
                 
                 if state == "RUNNING":
                     running_clusters.append((cluster_id, cluster_name))
@@ -1931,15 +2623,288 @@ def run_self_healing():
                     "action_available": "Enable auto_restart_failed_clusters in config"
                 })
             
+            # Process running clusters - enable autotermination if not configured
+            # AND also check all clusters with idle_cluster recommendations
+            autotermination_enabled_count = 0
+            
+
+            # Get clusters that need autotermination (either RUNNING or have idle_cluster recommendations)
+            clusters_to_process = []
+            all_recs = list_recommendations()
+            idle_cluster_recs = {rec.get("resource_id") for rec in all_recs if rec.get("type") == "idle_cluster"}
+            
+            # Add RUNNING clusters
+            clusters_to_process.extend(running_clusters)
+            
+            # Add TERMINATED/STOPPING clusters that have idle_cluster recommendations
+            for cluster in clusters:
+                cluster_id = cluster.get("cluster_id")
+                state = cluster.get("state", "UNKNOWN")
+                cluster_name = cluster.get("cluster_name", "Unknown")
+                
+                # If it has an idle_cluster recommendation or is RUNNING, and not already in the list
+                if (cluster_id in idle_cluster_recs or state == "RUNNING") and (cluster_id, cluster_name) not in clusters_to_process:
+                    clusters_to_process.append((cluster_id, cluster_name))
+            
+            if config.is_feature_enabled("auto_terminate_idle_clusters"):
+                for cluster_id, cluster_name in clusters_to_process:
+                    try:
+                        # Get full cluster info to check autotermination status
+                        cluster_info = databricks_client.get_cluster_info(cluster_id)
+                        if cluster_info.get("status") == "success":
+                            cluster = cluster_info.get("cluster", {})
+                            autotermination_minutes = cluster.get("autotermination_minutes")
+                            
+                            # If autotermination is not configured or is 0, enable it
+                            if not autotermination_minutes or autotermination_minutes == 0:
+                                logger.info(f"Enabling autotermination for cluster {cluster_name}")
+                                
+                                # Check if dry-run mode
+                                if config.is_dry_run():
+                                    logger.info(f"[DRY-RUN] Would enable 15-minute autotermination for {cluster_name}")
+                                    autotermination_enabled_count += 1
+                                    history.add_action(
+                                        action_type="enable_autotermination",
+                                        resource_id=cluster_id,
+                                        resource_type="cluster",
+                                        status="success",
+                                        details={
+                                            "cluster_name": cluster_name,
+                                            "autotermination_minutes": 15,
+                                            "dry_run": True
+                                        }
+                                    )
+                                    results.append({
+                                        "action": "enable_autotermination",
+                                        "cluster_id": cluster_id,
+                                        "cluster_name": cluster_name,
+                                        "status": "dry_run",
+                                        "message": f"[DRY-RUN] Would enable 15-minute autotermination for {cluster_name}"
+                                    })
+                                else:
+                                    # Actually enable autotermination
+                                    result = databricks_client.update_cluster_config(
+                                        cluster_id=cluster_id,
+                                        autotermination_minutes=15
+                                    )
+                                    
+                                    if result.get("status") == "success":
+                                        actions_taken += 1
+                                        autotermination_enabled_count += 1
+                                        history.add_action(
+                                            action_type="enable_autotermination",
+                                            resource_id=cluster_id,
+                                            resource_type="cluster",
+                                            status="success",
+                                            details={
+                                                "cluster_name": cluster_name,
+                                                "autotermination_minutes": 15,
+                                                "dry_run": False
+                                            }
+                                        )
+                                        results.append({
+                                            "action": "enable_autotermination",
+                                            "cluster_id": cluster_id,
+                                            "cluster_name": cluster_name,
+                                            "status": "success",
+                                            "message": f"Successfully enabled 15-minute autotermination for {cluster_name}"
+                                        })
+                                        logger.info(f"Successfully enabled autotermination for {cluster_name}")
+                                        
+                                        # Mark corresponding idle_cluster recommendations as APPLIED
+                                        all_recs = list_recommendations()
+                                        for rec in all_recs:
+                                            if (rec.get("type") == "idle_cluster" and 
+                                                rec.get("resource_id") == cluster_id and
+                                                rec.get("status") == "PENDING"):
+                                                update_status(rec.get("id"), "APPLIED", note=f"Autotermination enabled for cluster {cluster_name}")
+                                                logger.info(f"Marked recommendation {rec.get('id')} as APPLIED")
+                                    else:
+                                        history.add_action(
+                                            action_type="enable_autotermination",
+                                            resource_id=cluster_id,
+                                            resource_type="cluster",
+                                            status="failed",
+                                            details={
+                                                "cluster_name": cluster_name,
+                                                "error": result.get("error", "Unknown error"),
+                                                "dry_run": False
+                                            }
+                                        )
+                                        results.append({
+                                            "action": "enable_autotermination",
+                                            "cluster_id": cluster_id,
+                                            "cluster_name": cluster_name,
+                                            "status": "failed",
+                                            "message": result.get("error", "Failed to enable autotermination")
+                                        })
+                    except Exception as e:
+                        logger.error(f"Error checking/enabling autotermination for {cluster_name}: {e}")
+                        results.append({
+                            "action": "enable_autotermination",
+                            "cluster_id": cluster_id,
+                            "cluster_name": cluster_name,
+                            "status": "error",
+                            "message": str(e)
+                        })
+            else:
+                diagnostics.append({
+                    "issue": f"Found {len(running_clusters)} running clusters but auto_terminate_idle_clusters is disabled",
+                    "action_available": "Enable auto_terminate_idle_clusters in config"
+                })
+            
+            # Process stuck pending jobs - automatically cancel them
+            stuck_jobs_cancelled = 0
+            PENDING_THRESHOLD_MINUTES = 5
+            try:
+                jobs = databricks_client.get_all_jobs()
+                current_time_ms = int(time.time() * 1000)
+                
+                for job in jobs:
+                    job_id = job.get("job_id")
+                    job_name = job.get("settings", {}).get("name") or job.get("job_name", "Unknown")
+                    
+                    try:
+                        # Get recent runs for this job
+                        runs_response = databricks_client.get_job_runs(job_id, limit=10)
+                        if isinstance(runs_response, dict):
+                            if runs_response.get("status") != "success":
+                                continue
+                            runs = runs_response.get("runs", [])
+                        else:
+                            runs = runs_response or []
+                        
+                        if not runs:
+                            continue
+                        
+                        # Look for runs stuck in PENDING state
+                        for run in runs:
+                            state = run.get("state", {})
+                            life_cycle_state = state.get("life_cycle_state", "")
+                            
+                            # Only cancel if stuck in PENDING
+                            if life_cycle_state == "PENDING":
+                                run_id = run.get("run_id")
+                                start_time = run.get("start_time")
+                                
+                                if not start_time:
+                                    continue
+                                
+                                # Calculate how long it's been pending
+                                pending_duration_ms = current_time_ms - start_time
+                                pending_duration_minutes = pending_duration_ms / 1000 / 60
+                                
+                                # If pending for more than threshold, cancel it
+                                if pending_duration_minutes > PENDING_THRESHOLD_MINUTES:
+                                    logger.info(f"Cancelling stuck PENDING job run {run_id} for job {job_name} (pending for {pending_duration_minutes:.1f} minutes)")
+                                    
+                                    if config.is_dry_run():
+                                        logger.info(f"[DRY-RUN] Would cancel stuck job run {run_id}")
+                                        stuck_jobs_cancelled += 1
+                                        history.add_action(
+                                            action_type="cancel_stuck_job",
+                                            resource_id=str(run_id),
+                                            resource_type="job",
+                                            status="success",
+                                            details={
+                                                "job_name": job_name,
+                                                "job_id": job_id,
+                                                "run_id": run_id,
+                                                "pending_minutes": pending_duration_minutes,
+                                                "dry_run": True
+                                            }
+                                        )
+                                        results.append({
+                                            "action": "cancel_stuck_job",
+                                            "job_id": job_id,
+                                            "job_name": job_name,
+                                            "run_id": run_id,
+                                            "status": "dry_run",
+                                            "message": f"[DRY-RUN] Would cancel run {run_id} stuck for {pending_duration_minutes:.1f} minutes"
+                                        })
+                                    else:
+                                        # Actually cancel the run
+                                        cancel_result = databricks_client.cancel_job_run(run_id)
+                                        
+                                        if cancel_result.get("status") == "success":
+                                            actions_taken += 1
+                                            stuck_jobs_cancelled += 1
+                                            history.add_action(
+                                                action_type="cancel_stuck_job",
+                                                resource_id=str(run_id),
+                                                resource_type="job",
+                                                status="success",
+                                                details={
+                                                    "job_name": job_name,
+                                                    "job_id": job_id,
+                                                    "run_id": run_id,
+                                                    "pending_minutes": pending_duration_minutes,
+                                                    "dry_run": False
+                                                }
+                                            )
+                                            results.append({
+                                                "action": "cancel_stuck_job",
+                                                "job_id": job_id,
+                                                "job_name": job_name,
+                                                "run_id": run_id,
+                                                "status": "success",
+                                                "message": f"Cancelled run {run_id} stuck for {pending_duration_minutes:.1f} minutes"
+                                            })
+                                            logger.info(f"Successfully cancelled stuck job run {run_id}")
+                                            
+                                            # Mark corresponding stuck_pending_job recommendations as APPLIED
+                                            all_recs = list_recommendations()
+                                            for rec in all_recs:
+                                                if (rec.get("type") == "stuck_pending_job" and 
+                                                    rec.get("resource_id") == str(run_id) and
+                                                    rec.get("status") == "PENDING"):
+                                                    update_status(rec.get("id"), "APPLIED", note=f"Job run {run_id} was automatically cancelled as it was stuck in PENDING state")
+                                                    logger.info(f"Marked recommendation {rec.get('id')} as APPLIED")
+                                        else:
+                                            history.add_action(
+                                                action_type="cancel_stuck_job",
+                                                resource_id=str(run_id),
+                                                resource_type="job",
+                                                status="failed",
+                                                details={
+                                                    "job_name": job_name,
+                                                    "job_id": job_id,
+                                                    "run_id": run_id,
+                                                    "error": cancel_result.get("error", "Unknown error"),
+                                                    "dry_run": False
+                                                }
+                                            )
+                                            results.append({
+                                                "action": "cancel_stuck_job",
+                                                "job_id": job_id,
+                                                "job_name": job_name,
+                                                "run_id": run_id,
+                                                "status": "failed",
+                                                "message": cancel_result.get("error", "Failed to cancel job run")
+                                            })
+                                    
+                                    # Only cancel one stuck run per job
+                                    break
+                    
+                    except Exception as job_error:
+                        logger.debug(f"Could not check job {job_id} for stuck runs: {job_error}")
+                        continue
+            
+            except Exception as jobs_error:
+                logger.error(f"Error checking for stuck pending jobs: {str(jobs_error)}")
+            
             # Summary
             summary = {
                 "scanned_clusters": len(clusters),
                 "running_clusters": len(running_clusters),
                 "failed_clusters": len(failed_clusters),
+                "autotermination_enabled": autotermination_enabled_count,
+                "stuck_jobs_cancelled": stuck_jobs_cancelled,
                 "actions_taken": actions_taken,
                 "actions_available": {
                     "auto_restart": len(failed_clusters) if config.is_feature_enabled("auto_restart_failed_clusters") else 0,
-                    "auto_terminate": len(running_clusters) if config.is_feature_enabled("auto_terminate_idle_clusters") else 0
+                    "auto_terminate": autotermination_enabled_count if config.is_feature_enabled("auto_terminate_idle_clusters") else 0,
+                    "cancel_stuck_jobs": stuck_jobs_cancelled
                 }
             }
             
@@ -1948,7 +2913,7 @@ def run_self_healing():
                 "summary": summary,
                 "results": results,
                 "diagnostics": diagnostics,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": get_ist_time().isoformat()
             }
             
             logger.info(f"Self-healing run completed: {summary}")
@@ -2009,6 +2974,66 @@ def get_self_healing_stats():
         config = get_config()
         history = get_history()
         health = run_health_check()
+
+        # Get all clusters to check their states
+        try:
+            all_clusters = databricks_client.get_all_clusters()
+            terminated_cluster_ids = {
+                c.get("cluster_id") 
+                for c in all_clusters 
+                if c.get("state", "").upper() in {"TERMINATED", "TERMINATING"}
+            }
+        except Exception as e:
+            logger.warning(f"Failed to fetch cluster states for filtering: {str(e)}")
+            terminated_cluster_ids = set()
+
+        # Count only auto-healable recommendations (not general optimizations)
+        actionable_recs_by_key = {}
+        recommendations = list_recommendations()
+        auto_healable_types = {"stuck_pending_job", "idle_cluster", "execution_error"}
+        
+        for rec in recommendations:
+            rec_type = (rec.get("type") or "").lower()
+            
+            # Only count auto-healable types
+            if rec_type not in auto_healable_types:
+                continue
+            
+            # Only count recommendations that are actionable (PENDING or APPROVED)
+            # Exclude APPLIED, FAILED, and REJECTED
+            status = rec.get("status")
+            if status not in ("PENDING", "APPROVED"):
+                continue
+            
+            # Skip recommendations for TERMINATED clusters
+            if rec.get("resource_type") == "cluster":
+                cluster_id = rec.get("resource_id")
+                if cluster_id in terminated_cluster_ids:
+                    logger.debug(f"Skipping recommendation for TERMINATED cluster: {cluster_id}")
+                    continue
+            
+            # Only count recommendations that have actions (or cost_leak/idle_cluster types)
+            action = rec.get("action")
+            if action is None or action == "":
+                # Allow idle_cluster and cost_leak types even without explicit action
+                if rec_type not in {"idle_cluster"} and rec.get("type") != "cost_leak":
+                    continue
+            
+            # Create a unique key for deduplication
+            resource_id = rec.get("resource_id") or rec.get("resource_name")
+            message = rec.get("title") or rec.get("description") or "Issue detected"
+            timestamp = rec.get("updated_at") or rec.get("created_at")
+            try:
+                timestamp_dt = datetime.fromisoformat(timestamp) if timestamp else datetime.min
+            except (TypeError, ValueError):
+                timestamp_dt = datetime.min
+            
+            key = f"{rec_type}|{resource_id}|{message}"
+            existing = actionable_recs_by_key.get(key)
+            if not existing or timestamp_dt > existing:
+                actionable_recs_by_key[key] = timestamp_dt
+
+        actionable_recommendations_count = len(actionable_recs_by_key)
         
         return jsonify({
             "success": True,
@@ -2016,7 +3041,7 @@ def get_self_healing_stats():
             "dry_run": config.is_dry_run(),
             "health_summary": health.get("summary", {}),
             "healing_stats": history.get_stats(),
-            "auto_healable_issues": len(health.get("auto_healable", []))
+            "auto_healable_issues": actionable_recommendations_count
         }), 200
     
     except Exception as e:

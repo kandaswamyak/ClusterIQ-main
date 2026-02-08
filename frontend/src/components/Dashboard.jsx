@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchStats, analyzeJobsAndClusters, fetchRecommendationsRealtime, fetchLogsStats } from '../services/api'
-import { Activity, Database, TrendingDown, AlertCircle, RefreshCw, AlertTriangle, Lightbulb } from 'lucide-react'
+import { fetchStats, analyzeJobsAndClusters, fetchRecommendationsRealtime, fetchLogsStats, getSelfHealingStats, getHealingHistory } from '../services/api'
+import { Activity, Database, TrendingDown, AlertCircle, RefreshCw, AlertTriangle, Lightbulb, Shield, CheckCircle, XCircle } from 'lucide-react'
 
 function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -32,6 +32,18 @@ function Dashboard() {
     queryKey: ['logs-stats'],
     queryFn: fetchLogsStats,
     refetchInterval: 30000, // Refresh every 30 seconds
+  })
+
+  const { data: healingStats } = useQuery({
+    queryKey: ['self-healing-stats'],
+    queryFn: getSelfHealingStats,
+    refetchInterval: 30000,
+  })
+
+  const { data: healingHistory } = useQuery({
+    queryKey: ['healing-history'],
+    queryFn: () => getHealingHistory(10),
+    refetchInterval: 30000,
   })
 
   const handleAnalyze = async () => {
@@ -99,14 +111,48 @@ function Dashboard() {
   const averageConfidence = confidenceValues.length
     ? confidenceValues.reduce((sum, v) => sum + v, 0) / confidenceValues.length
     : null
+  const executionErrorRecs = recommendationsList.filter(
+    (rec) => (rec.type || '').toLowerCase() === 'execution_error'
+  )
+  const executionErrorConfidenceValues = executionErrorRecs
+    .map((rec) => getConfidenceWithFallback(rec))
+    .filter((val) => typeof val === 'number')
+  const executionErrorConfidence = executionErrorConfidenceValues.length
+    ? executionErrorConfidenceValues.reduce((sum, v) => sum + v, 0) / executionErrorConfidenceValues.length
+    : null
   const jobRecommendationCount = recommendationsList.filter((rec) => {
     const resourceType = (rec.resource_type || '').toLowerCase()
     return resourceType === 'job' || resourceType === 'jobs'
   }).length
+  const jobRecommendationSavings = recommendationsList
+    .filter((rec) => {
+      const resourceType = (rec.resource_type || '').toLowerCase()
+      return resourceType === 'job' || resourceType === 'jobs'
+    })
+    .reduce((sum, rec) => sum + parseMonthlySavings(rec), 0)
   const clusterRecommendationCount = recommendationsList.filter((rec) => {
     const resourceType = (rec.resource_type || '').toLowerCase()
     return resourceType === 'cluster' || resourceType === 'clusters'
   }).length
+  const recentRecommendations = [...recommendationsList].sort((a, b) => {
+    const typeOrder = {
+      execution_error: 0,
+      stuck_pending_job: 1,
+      frequent_retries: 2,
+      cost_leak: 3,
+      idle_cluster: 4,
+      optimization: 5,
+      other: 6
+    }
+    const severityOrder = { high: 0, medium: 1, low: 2 }
+    const aType = (a.type || 'other').toLowerCase()
+    const bType = (b.type || 'other').toLowerCase()
+    const typeDiff = (typeOrder[aType] ?? 99) - (typeOrder[bType] ?? 99)
+    if (typeDiff !== 0) return typeDiff
+    const aSev = (a.severity || 'low').toLowerCase()
+    const bSev = (b.severity || 'low').toLowerCase()
+    return (severityOrder[aSev] ?? 99) - (severityOrder[bSev] ?? 99)
+  })
 
   return (
     <div className="space-y-8">
@@ -150,12 +196,13 @@ function Dashboard() {
       {recommendations && (
         <Link to="/recommendations" className="block cursor-pointer">
           <div className="dxc-card hover:shadow-lg hover:scale-[1.02] transition-all duration-200 border-2 border-purple-700">
-            <h2 className="text-xl font-semibold mb-4 flex items-center text-white">
-              <TrendingDown className="h-5 w-5 mr-2 text-purple-400" />
+            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
+              <TrendingDown className="h-5 w-5 mr-2 text-purple-600" />
               📊 Total Recommendations
             </h2>
-            <div className="text-4xl font-bold text-purple-400">{recommendations.recommendations?.length || 0}</div>
-            <p className="text-gray-300 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
+            <div className="text-4xl font-bold text-purple-600">{recommendations.recommendations?.length || 0}</div>
+            <p className="text-gray-700 mt-2 text-sm">Current recommendations: {recommendations.recommendations?.length || 0}</p>
+            <p className="text-gray-600 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
           </div>
         </Link>
       )}
@@ -172,10 +219,29 @@ function Dashboard() {
               icon={<Database className="h-6 w-6" />}
               color="blue"
               footer={
-                <Link to="/recommendations" className="mt-2 inline-flex items-center text-xs text-blue-600 hover:text-blue-800 font-semibold hover:underline">
-                  <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
-                  💰 {jobRecommendationCount} $ recommendations
-                </Link>
+                <div className="mt-2 space-y-1">
+                  {executionErrorRecs.length > 0 && (
+                    <>
+                      <Link to="/recommendations" className="inline-flex items-center text-xs text-red-600 hover:text-red-800 font-semibold hover:underline">
+                        🔴 {executionErrorRecs.length} execution errors detected
+                      </Link>
+                      {executionErrorConfidence !== null && (
+                        <div className="text-xs text-red-600 font-semibold">
+                          🔎 Confidence {Math.round(executionErrorConfidence)}%
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <Link to="/recommendations" className="inline-flex items-center text-xs text-green-600 hover:text-green-800 hover:underline">
+                    <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
+                    💰 {jobRecommendationCount} $ recommendations
+                  </Link>
+                  {jobRecommendationSavings > 0 && (
+                    <div className="text-xs text-green-700 font-semibold">
+                      ${jobRecommendationSavings.toFixed(2)}/mo potential savings
+                    </div>
+                  )}
+                </div>
               }
             />
             <StatCard
@@ -315,11 +381,56 @@ function Dashboard() {
         </div>
       )}
 
+      {recommendations && executionErrorRecs.length > 0 && (
+        <div className="dxc-card border-l-4 border-red-500">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold flex items-center text-gray-900">
+              <AlertTriangle className="h-5 w-5 mr-2 text-red-600" />
+              Execution Errors
+            </h2>
+            <Link to="/recommendations" className="text-xs font-semibold text-red-600 hover:text-red-800 hover:underline">
+              View all →
+            </Link>
+          </div>
+          <p className="text-sm text-red-700">
+            🔴 {executionErrorRecs.length} failed jobs detected
+          </p>
+          {executionErrorConfidence !== null && (
+            <p className="text-xs text-red-600 mt-1 font-semibold">
+              🔎 Average confidence: {Math.round(executionErrorConfidence)}%
+            </p>
+          )}
+          <div className="mt-3 space-y-2">
+            {executionErrorRecs.slice(0, 3).map((rec) => (
+              <Link
+                key={rec.id}
+                to="/recommendations"
+                className="block bg-red-50 rounded-lg p-3 border border-red-200 hover:shadow-sm transition-shadow"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {rec.title || 'Execution error detected'}
+                    </p>
+                    {rec.resource_name && (
+                      <p className="text-xs text-gray-600 truncate">Job: {rec.resource_name}</p>
+                    )}
+                  </div>
+                  <span className="text-xs font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+                    {Math.round(getConfidenceWithFallback(rec))}%
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {recommendations && recommendations.recommendations?.length > 0 && (
         <div className="dxc-card">
           <h2 className="text-xl font-semibold mb-6 text-gray-900">Recent Recommendations</h2>
           <div className="space-y-4">
-            {recommendations.recommendations.slice(0, 5).map((rec) => (
+            {recentRecommendations.slice(0, 5).map((rec) => (
               (() => {
                 const monthlySavings = parseMonthlySavings(rec)
                 const confidence = getConfidenceWithFallback(rec)
@@ -367,6 +478,84 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Self-Healing Activity */}
+      <div className="dxc-card border-l-4 border-green-500">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold flex items-center text-gray-900">
+            <Shield className="h-5 w-5 mr-2 text-green-600" />
+            Self-Healing Status
+          </h2>
+          <Link to="/self-healing" className="text-xs font-semibold text-green-600 hover:text-green-800 hover:underline">
+            View Details →
+          </Link>
+        </div>
+
+        {healingStats ? (
+          <div className="space-y-4">
+            {/* Status Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-lg p-4">
+                <p className="text-xs text-green-700 font-semibold uppercase tracking-wide mb-2">Status</p>
+                <p className="text-2xl font-bold text-green-700">{healingStats.enabled ? '🟢 Active' : '🔴 Inactive'}</p>
+                <p className="text-xs text-green-600 mt-2">{healingStats.dry_run ? 'Dry-run mode' : 'Live mode'}</p>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-4">
+                <p className="text-xs text-blue-700 font-semibold uppercase tracking-wide mb-2">Cluster Health</p>
+                <p className="text-2xl font-bold text-blue-700">{healingStats.health_summary?.health_percentage?.toFixed(0) || '0'}%</p>
+                <p className="text-xs text-blue-600 mt-2">{healingStats.health_summary?.healthy || 0}/{healingStats.health_summary?.total_clusters || 0} healthy</p>
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-lg p-4">
+                <p className="text-xs text-purple-700 font-semibold uppercase tracking-wide mb-2">Actions Taken</p>
+                <p className="text-2xl font-bold text-purple-700">{healingStats.healing_stats?.total_actions || 0}</p>
+                <p className="text-xs text-purple-600 mt-2">{healingStats.healing_stats?.successful || 0} successful</p>
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            {healingHistory?.history && healingHistory.history.length > 0 ? (
+              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                <h3 className="font-semibold text-gray-900 mb-3 text-sm">Recent Activity</h3>
+                <div className="space-y-2">
+                  {healingHistory.history.slice(0, 3).map((action, idx) => (
+                    <div key={idx} className="flex items-center gap-3 p-2 bg-white rounded border border-gray-100 text-sm">
+                      {action.status === 'success' ? (
+                        <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 capitalize truncate">{action.action_type.replace(/_/g, ' ')}</p>
+                        <p className="text-xs text-gray-500">{action.resource_type}: {action.resource_id}</p>
+                      </div>
+                      <span className="text-xs text-gray-500 flex-shrink-0 whitespace-nowrap">
+                        {new Date(action.timestamp).toLocaleString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          hour: 'numeric', 
+                          minute: '2-digit', 
+                          hour12: true 
+                        })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-center">
+                <p className="text-sm text-gray-600">No healing actions yet</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="animate-pulse space-y-3">
+            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+            <div className="h-20 bg-gray-200 rounded"></div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

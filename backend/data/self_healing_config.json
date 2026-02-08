@@ -4,11 +4,12 @@
     "auto_restart_failed_clusters": false,
     "auto_terminate_idle_clusters": true,
     "auto_scale_adjustments": false,
-    "auto_apply_optimizations": false,
+    "auto_apply_optimizations": true,
     "proactive_health_checks": false
   },
   "thresholds": {
-    "idle_timeout_minutes": 30,
+    "idle_timeout_minutes": 10,
+    "failed_restart_window_minutes": 120,
     "max_restart_attempts": 3,
     "cpu_utilization_low": 10,
     "cpu_utilization_high": 90,

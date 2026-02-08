@@ -6,7 +6,8 @@ import {
   getHealthStatus,
   runSelfHealing,
   getHealingHistory,
-  getSelfHealingStats
+  getSelfHealingStats,
+  fetchApprovals
 } from '../services/api'
 import { 
   Activity, 
@@ -58,6 +59,45 @@ function SelfHealing() {
     refetchInterval: 30000
   })
 
+  // Fetch pending recommendations for actionable issues
+  const { data: pendingRecommendations } = useQuery({
+    queryKey: ['auto-remediation'],
+    queryFn: async () => {
+      const data = await fetchApprovals('PENDING')
+      const allRecs = data?.recommendations || []
+      
+      // Get all clusters to check their states
+      let terminatedClusterIds = new Set()
+      try {
+        const clustersResponse = await fetch('http://localhost:8000/api/clusters')
+        const clusters = await clustersResponse.json()
+        terminatedClusterIds = new Set(
+          clusters
+            .filter(c => ['TERMINATED', 'TERMINATING'].includes(c.state))
+            .map(c => c.cluster_id)
+        )
+      } catch (err) {
+        console.warn('Failed to fetch cluster states:', err)
+      }
+      
+      // Filter to only show auto-healable issues (not general optimizations)
+      const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error']
+      return allRecs.filter(rec => {
+        // Skip recommendations for TERMINATED clusters
+        if (rec.resource_type === 'cluster' && terminatedClusterIds.has(rec.resource_id)) {
+          return false
+        }
+        
+        // Include auto-healable types
+        if (autoHealableTypes.includes(rec.type)) return true
+        // Also include cost_leak type if it's an idle cluster detection
+        if (rec.type === 'cost_leak' && rec.title && rec.title.toLowerCase().includes('idle cluster')) return true
+        return false
+      })
+    },
+    refetchInterval: 10000
+  })
+
   // Update config mutation
   const updateConfigMutation = useMutation({
     mutationFn: updateSelfHealingConfig,
@@ -87,10 +127,12 @@ function SelfHealing() {
       // Clear message after 5 seconds
       setTimeout(() => setHealingMessage(null), 5000)
       
-      // Refresh queries
+      // Refresh queries immediately
       queryClient.invalidateQueries(['healing-history'])
       queryClient.invalidateQueries(['self-healing-stats'])
       queryClient.invalidateQueries(['health-status'])
+      // Immediately refetch auto-remediation to show updated count and clear content
+      queryClient.refetchQueries(['auto-remediation'])
     },
     onError: (error) => {
       setHealingMessage(`Error: ${error?.message || 'Failed to run healing'}`)
@@ -286,7 +328,7 @@ function SelfHealing() {
             <AlertTriangle className="h-6 w-6 text-red-300" />
           </div>
           <div className="text-4xl font-extrabold text-white">
-            {stats.auto_healable_issues || 0}
+            {pendingRecommendations && pendingRecommendations.length > 0 ? 1 : 0}
           </div>
           <p className="text-sm text-red-200 mt-3 font-medium">
             Issues detected
@@ -372,6 +414,79 @@ function SelfHealing() {
         </div>
       </div>
 
+      {/* Current Issue */}
+      {pendingRecommendations && pendingRecommendations.length > 0 && (() => {
+        // Sort recommendations by priority to show only the most critical
+        const sortedRecs = [...pendingRecommendations].sort((a, b) => {
+          // Priority order: execution_error > stuck_pending_job > others
+          const priorityMap = { 'execution_error': 0, 'stuck_pending_job': 1 }
+          const aPriority = priorityMap[a.type] ?? 2
+          const bPriority = priorityMap[b.type] ?? 2
+          
+          if (aPriority !== bPriority) return aPriority - bPriority
+          
+          // Then by severity: high > medium > low
+          const severityMap = { 'high': 0, 'medium': 1, 'low': 2 }
+          const aSeverity = severityMap[a.severity] ?? 2
+          const bSeverity = severityMap[b.severity] ?? 2
+          
+          return aSeverity - bSeverity
+        })
+        
+        const topRec = sortedRecs[0]
+        const isStuckPending = topRec.type === 'stuck_pending_job'
+        const isExecutionError = topRec.type === 'execution_error'
+        const isHighPriority = isStuckPending || isExecutionError
+        
+        return (
+          <div className="dxc-card border-l-4 border-purple-500">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+              <AlertTriangle className="h-6 w-6 mr-3 text-purple-600" />
+              Auto-Remediation (1)
+            </h2>
+            <div 
+              className={`p-4 border rounded-lg ${
+                isStuckPending ? 'bg-yellow-50 border-yellow-300' :
+                isExecutionError ? 'bg-red-50 border-red-300' :
+                'bg-gray-50 border-gray-300'
+              }`}
+            >
+              <div className="flex items-start gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-semibold text-gray-900">{topRec.title}</h3>
+                    <span className={`px-2 py-0.5 text-xs rounded font-semibold ${
+                      topRec.severity === 'high' ? 'bg-red-100 text-red-700' :
+                      topRec.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      {topRec.severity?.toUpperCase()}
+                    </span>
+                    {isHighPriority && (
+                      <span className="px-2 py-0.5 text-xs rounded font-semibold bg-purple-100 text-purple-700">
+                        URGENT
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-700 mb-2">{topRec.description}</p>
+                  <div className="flex items-center gap-4 text-xs text-gray-600">
+                    <span>Resource: {topRec.resource_name || topRec.resource_id}</span>
+                    {topRec.details?.pending_duration_minutes && (
+                      <span className="text-yellow-700 font-semibold">
+                        ⏱️ Stuck for {topRec.details.pending_duration_minutes.toFixed(1)} minutes
+                      </span>
+                    )}
+                    {topRec.confidence_score && (
+                      <span>Confidence: {(topRec.confidence_score * 100).toFixed(0)}%</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Activity History */}
       <div className="dxc-card">
         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
@@ -392,7 +507,13 @@ function SelfHealing() {
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-gray-900">{action.action_type.replace(/_/g, ' ')}</h3>
                     <span className="text-xs text-gray-500">
-                      {new Date(action.timestamp).toLocaleString()}
+                      {new Date(action.timestamp).toLocaleString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: 'numeric', 
+                        minute: '2-digit', 
+                        hour12: true 
+                      })}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mt-1">
@@ -412,32 +533,6 @@ function SelfHealing() {
           )}
         </div>
       </div>
-
-      {/* Health Issues */}
-      {healthData?.auto_healable && healthData.auto_healable.length > 0 && (
-        <div className="dxc-card border-l-4 border-amber-500">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
-            <AlertTriangle className="h-6 w-6 mr-3 text-amber-600" />
-            Auto-Healable Issues
-          </h2>
-          <div className="space-y-3">
-            {healthData.auto_healable.map((issue, idx) => (
-              <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-semibold text-amber-900">{issue.cluster_name}</h3>
-                    <p className="text-sm text-amber-700 mt-1">{issue.issue.message}</p>
-                    <p className="text-xs text-amber-600 mt-1">Severity: {issue.issue.severity}</p>
-                  </div>
-                  <span className="px-2 py-1 bg-amber-200 text-amber-800 text-xs rounded font-semibold">
-                    {issue.issue.type}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

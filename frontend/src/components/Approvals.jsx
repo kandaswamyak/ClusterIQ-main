@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   analyzeDeltaTables,
@@ -20,6 +20,8 @@ const STATUS_TABS = [
 
 function Approvals() {
   const [statusFilter, setStatusFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [actionError, setActionError] = useState(null)
 
@@ -36,6 +38,19 @@ function Approvals() {
     queryFn: () => fetchApprovals(statusFilter),
     refetchInterval: 30000,
   })
+
+  // Debug log
+  useEffect(() => {
+    if (data?.recommendations) {
+      const idleCount = data.recommendations.filter(r => r.type === 'idle_cluster').length
+      console.log(`[DEBUG] Approvals: Total=${data.recommendations.length}, Idle=${idleCount}`)
+      data.recommendations.forEach(r => {
+        if (r.type === 'idle_cluster') {
+          console.log(`[DEBUG] Idle cluster: ${r.id} - ${r.title}`)
+        }
+      })
+    }
+  }, [data])
 
   // Calculate status counts
   const statusCounts = useMemo(() => {
@@ -80,7 +95,52 @@ function Approvals() {
     }
   }
 
-  const recommendations = data?.recommendations || []
+  // Sort recommendations by date (newest first) and optionally filter out applied/approved
+  const rawRecommendations = data?.recommendations || []
+  const recommendations = useMemo(() => {
+    let sorted = [...rawRecommendations].sort((a, b) => {
+      // Try to get timestamp from various possible fields
+      const dateA = a.created_at || a.timestamp || a.date || new Date(0)
+      const dateB = b.created_at || b.timestamp || b.date || new Date(0)
+      
+      // Parse dates if they're strings
+      const timeA = typeof dateA === 'string' ? new Date(dateA).getTime() : (dateA instanceof Date ? dateA.getTime() : 0)
+      const timeB = typeof dateB === 'string' ? new Date(dateB).getTime() : (dateB instanceof Date ? dateB.getTime() : 0)
+      
+      return timeB - timeA // Newest first
+    })
+    
+    // Apply date range filter
+    if (fromDate || toDate) {
+      sorted = sorted.filter(rec => {
+        const recDate = new Date(rec.created_at || rec.timestamp || new Date(0))
+        
+        if (fromDate) {
+          const from = new Date(fromDate)
+          from.setHours(0, 0, 0, 0)
+          if (recDate < from) return false
+        }
+        
+        if (toDate) {
+          const to = new Date(toDate)
+          to.setHours(23, 59, 59, 999)
+          if (recDate > to) return false
+        }
+        
+        return true
+      })
+    }
+    
+    // If viewing PENDING tab, hide APPLIED and some other completed statuses
+    if (statusFilter === 'PENDING') {
+      sorted = sorted.filter(rec => {
+        const status = rec.status || 'PENDING'
+        return !['APPLIED', 'REJECTED', 'FAILED'].includes(status)
+      })
+    }
+    
+    return sorted
+  }, [rawRecommendations, statusFilter, fromDate, toDate])
 
   const getSavingsDisplay = (rec) => {
     if (!rec) return null
@@ -134,34 +194,65 @@ function Approvals() {
         </button>
       </div>
 
-      <div className="flex items-center gap-4">
+      {/* Filters Row */}
+      <div className="flex flex-wrap items-center gap-3 pb-2">
         <label className="text-sm text-gray-700 flex items-center gap-2 font-medium">
           <Filter className="h-5 w-5 text-purple-600" />
-          Status Filter
+          Status
         </label>
-        <div className="flex flex-wrap gap-2">
-          {STATUS_TABS.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setStatusFilter(tab.value)}
-              className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all transform hover:scale-105 flex items-center gap-2 shadow-md ${
-                statusFilter === tab.value
-                  ? 'text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 border border-gray-300'
-              }`}
-              style={statusFilter === tab.value ? { background: 'linear-gradient(135deg, #9333ea, #c026d3)' } : {}}
-            >
-              {tab.label}
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                statusFilter === tab.value
-                  ? 'bg-white bg-opacity-30'
-                  : 'bg-gray-300'
-              }`}>
-                {statusCounts[tab.value] || 0}
-              </span>
-            </button>
-          ))}
-        </div>
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setStatusFilter(tab.value)}
+            className={`px-3 py-1.5 rounded-lg font-semibold text-sm transition-all flex items-center gap-2 shadow-sm ${
+              statusFilter === tab.value
+                ? 'text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 border border-gray-300'
+            }`}
+            style={statusFilter === tab.value ? { background: 'linear-gradient(135deg, #9333ea, #c026d3)' } : {}}
+          >
+            {tab.label}
+            <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+              statusFilter === tab.value
+                ? 'bg-white bg-opacity-30'
+                : 'bg-gray-300'
+            }`}>
+              {statusCounts[tab.value] || 0}
+            </span>
+          </button>
+        ))}
+
+        {/* Date Filter - appears after status buttons */}
+        <div className="h-6 w-px bg-gray-300 mx-1"></div>
+        <label className="text-xs text-gray-700 font-medium whitespace-nowrap">
+          📅
+        </label>
+        <input
+          type="date"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          placeholder="From"
+          className="px-2 py-1.5 border border-gray-300 rounded text-xs w-32 focus:outline-none focus:ring-1 focus:ring-purple-500"
+        />
+        <span className="text-xs text-gray-500">—</span>
+        <input
+          type="date"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          placeholder="To"
+          className="px-2 py-1.5 border border-gray-300 rounded text-xs w-32 focus:outline-none focus:ring-1 focus:ring-purple-500"
+        />
+        {(fromDate || toDate) && (
+          <button
+            onClick={() => {
+              setFromDate('')
+              setToDate('')
+            }}
+            className="px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-xs font-semibold transition-colors"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {(error || actionError) && (
@@ -197,7 +288,8 @@ function Approvals() {
                   </div>
                   <p className="text-sm text-gray-600 mt-2">{rec.description}</p>
                   <div className="text-xs text-gray-500 mt-2">
-                    Resource: {rec.resource_type || 'N/A'} {rec.resource_id ? `• ${rec.resource_id}` : ''}
+                    Resource: {rec.resource_type || 'N/A'} {rec.resource_id ? `• ${rec.resource_id}` : ''} 
+                    {(rec.created_at || rec.timestamp) && `• ${new Date(rec.created_at || rec.timestamp).toLocaleString()}`}
                   </div>
                   {savingsDisplay !== null && (
                     <div className="text-xs text-green-600 mt-1 font-medium">
@@ -220,26 +312,31 @@ function Approvals() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleAction('approve', rec.id)}
-                    className="dxc-button-primary flex items-center"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-1" /> Approve
-                  </button>
-                  <button
-                    onClick={() => handleAction('reject', rec.id)}
-                    className="dxc-button-secondary flex items-center"
-                  >
-                    <XCircle className="h-4 w-4 mr-1" /> Reject
-                  </button>
-                  <button
-                    onClick={() => handleAction('apply', rec.id)}
-                    className="dxc-button-primary flex items-center"
-                  >
-                    <PlayCircle className="h-4 w-4 mr-1" /> Apply
-                  </button>
-                </div>
+                {/* Action buttons - conditional based on status filter */}
+                {statusFilter !== 'REJECTED' && statusFilter !== 'APPLIED' && (
+                  <div className="flex items-center gap-2">
+                    {statusFilter !== 'APPROVED' && (
+                      <button
+                        onClick={() => handleAction('approve', rec.id)}
+                        className="dxc-button-primary flex items-center"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" /> Approve
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleAction('reject', rec.id)}
+                      className="dxc-button-secondary flex items-center"
+                    >
+                      <XCircle className="h-4 w-4 mr-1" /> Reject
+                    </button>
+                    <button
+                      onClick={() => handleAction('apply', rec.id)}
+                      className="dxc-button-primary flex items-center"
+                    >
+                      <PlayCircle className="h-4 w-4 mr-1" /> Apply
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
               )

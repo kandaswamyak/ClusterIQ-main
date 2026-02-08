@@ -1,9 +1,16 @@
 """AI Agent for analyzing Databricks jobs and clusters to identify cost leaks."""
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 import json
 import logging
+
+# Configure timezone for IST (India Standard Time)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_time():
+    """Get current time in IST timezone."""
+    return datetime.now(IST)
 
 logger = logging.getLogger(__name__)
 
@@ -614,7 +621,7 @@ Return ONLY a valid JSON array of recommendations. Example format:
         """Enhance recommendations with additional metadata."""
         for rec in recommendations:
             if "timestamp" not in rec:
-                rec["timestamp"] = datetime.utcnow().isoformat()
+                rec["timestamp"] = get_ist_time().isoformat()
             if "id" not in rec:
                 rec["id"] = f"rec_{hash(str(rec))}"
         
@@ -759,20 +766,29 @@ Return ONLY a valid JSON array of recommendations. Example format:
         # Check for idle clusters
         for cluster in clusters:
             if cluster.get("state") == "RUNNING" and cluster.get("num_workers", 0) > 0:
+                cluster_id = cluster.get("cluster_id")
+                cluster_name = cluster.get("cluster_name") or "Unknown"
                 recommendations.append({
-                    "id": f"rec_{len(recommendations)}",
+                    "id": f"rec_idle_{cluster_id}",
                     "type": "cost_leak",
                     "severity": "medium",
-                    "title": f"Idle cluster detected: {cluster.get('cluster_name')}",
+                    "title": f"Idle cluster detected: {cluster_name}",
                     "description": "Cluster appears to be running with low utilization",
                     "resource_type": "cluster",
-                    "resource_id": cluster.get("cluster_id"),
+                    "resource_id": cluster_id,
+                    "resource_name": cluster_name,
+                    "status": "PENDING",
                     "current_config": {
                         "num_workers": cluster.get("num_workers"),
                         "node_type": cluster.get("node_type_id"),
                     },
                     "recommended_config": {
-                        "action": "Terminate if idle for extended period",
+                        "action": "Enable auto-termination",
+                    },
+                    "action": {
+                        "type": "enable_autotermination",
+                        "cluster_id": cluster_id,
+                        "autotermination_minutes": 5
                     },
                     "estimated_savings": "Medium",
                     "risk": "Low",
@@ -783,7 +799,7 @@ Return ONLY a valid JSON array of recommendations. Example format:
     def _get_current_timestamp(self) -> str:
         """Get current timestamp as ISO string."""
         from datetime import datetime
-        return datetime.utcnow().isoformat()
+        return get_ist_time().isoformat()
     
     def summarize_delta_table_data(
         self,

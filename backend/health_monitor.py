@@ -70,10 +70,12 @@ class HealthMonitor:
             }
     
     def check_all_clusters(self) -> List[Dict[str, Any]]:
-        """Check health of all clusters (fast version - uses cached cluster list)"""
+        """Check health of all active clusters (excludes terminated clusters)"""
         try:
-            # Use the cached cluster list instead of making API call for each cluster
-            clusters = self.client.get_all_clusters()
+            all_clusters = self.client.get_all_clusters()
+            # Filter out terminated clusters
+            clusters = [c for c in all_clusters if c.get("state", "").upper() not in {"TERMINATED"}]
+            logging.info(f"Health check: analyzing {len(clusters)} active clusters (filtered from {len(all_clusters)} total)")
             health_reports = []
             
             for cluster in clusters:
@@ -81,7 +83,6 @@ class HealthMonitor:
                 cluster_name = cluster.get("cluster_name", "Unknown")
                 state = cluster.get("state", "UNKNOWN")
                 
-                # Simple health check based on state
                 is_healthy = state not in ["FAILED", "ERROR", "TERMINATING"]
                 issues = []
                 
@@ -92,6 +93,16 @@ class HealthMonitor:
                         "message": f"Cluster in {state} state",
                         "auto_healable": True
                     })
+                
+                # Check for idle clusters (RUNNING clusters that haven't been used recently)
+                if state == "RUNNING" and self._is_cluster_idle(cluster):
+                    issues.append({
+                        "type": "cluster_idle",
+                        "severity": "warning",
+                        "message": "Cluster is idle and consuming resources",
+                        "auto_healable": True
+                    })
+                    is_healthy = False
                 
                 health = {
                     "cluster_id": cluster_id,
@@ -144,25 +155,26 @@ class HealthMonitor:
         return [report for report in health_reports if not report.get("is_healthy", True)]
     
     def get_auto_healable_issues(self) -> List[Dict[str, Any]]:
-        """Get issues that can be auto-healed"""
+        """Get issues that can be auto-healed (detected regardless of enabled flag)"""
         unhealthy = self.get_unhealthy_clusters()
         auto_healable = []
         
         for cluster_health in unhealthy:
             cluster_id = cluster_health.get("cluster_id")
+            cluster_name = cluster_health.get("cluster_name")
             
-            # Check if cluster is eligible for auto-healing
-            if not self.config.can_auto_heal_cluster(cluster_id):
-                continue
-            
-            # Get auto-healable issues
+            # Get auto-healable issues from this cluster
+            # Include all auto-healable issues detected, regardless of whether healing is enabled
+            # The enabled flag only controls whether actions are taken, not whether we detect issues
             for issue in cluster_health.get("issues", []):
                 if issue.get("auto_healable", False):
                     auto_healable.append({
                         "cluster_id": cluster_id,
-                        "cluster_name": cluster_health.get("cluster_name"),
+                        "cluster_name": cluster_name,
+                        "issue_type": issue.get("type"),
                         "issue": issue,
-                        "timestamp": cluster_health.get("timestamp")
+                        "timestamp": cluster_health.get("timestamp"),
+                        "can_heal": self.config.can_auto_heal_cluster(cluster_id)
                     })
         
         return auto_healable
@@ -209,7 +221,9 @@ class ProactiveHealthCheck:
         # For now, use simple heuristics
         
         try:
-            clusters_list = self.client.get_all_clusters()
+            all_clusters_list = self.client.get_all_clusters()
+            # Filter out terminated clusters
+            clusters_list = [c for c in all_clusters_list if c.get("state", "").upper() not in {"TERMINATED"}]
             clusters = {"clusters": clusters_list}
             
             for cluster in clusters.get("clusters", []):

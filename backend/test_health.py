@@ -3,8 +3,15 @@
 import sys
 sys.path.insert(0, '.')
 from databricks_client import get_databricks_client
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
+
+# Configure timezone for IST (India Standard Time)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_time():
+    """Get current time in IST timezone."""
+    return datetime.now(IST)
 
 try:
     print("Getting databricks client...")
@@ -34,7 +41,7 @@ try:
             }
             for c in clusters[:3]  # Just first 3
         ],
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_time().isoformat()
     }
     
     print("Result:")

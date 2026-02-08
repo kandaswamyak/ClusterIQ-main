@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchClusters, fetchJobRuns, startCluster, terminateCluster, fetchRecommendationsRealtime } from '../services/api'
-import { Activity, Server, Clock, ChevronDown, ChevronUp, Zap, AlertCircle, Play, Square, Lightbulb } from 'lucide-react'
+import { Activity, Server, Clock, ChevronDown, Zap, AlertCircle, Play, Square, Lightbulb } from 'lucide-react'
 
 function ClustersView() {
   const [expandedCluster, setExpandedCluster] = useState(null)
+  const [collapsedConfigs, setCollapsedConfigs] = useState({})
   const queryClient = useQueryClient()
   const { data: clusters, isLoading, error } = useQuery({
     queryKey: ['clusters'],
@@ -70,21 +71,6 @@ function ClustersView() {
     }
   }
 
-  const getRunStateColor = (state) => {
-    switch (state) {
-      case 'SUCCESS':
-        return 'text-green-700 bg-green-50 border-green-200'
-      case 'RUNNING':
-        return 'text-blue-700 bg-blue-50 border-blue-200'
-      case 'FAILED':
-        return 'text-red-700 bg-red-50 border-red-200'
-      case 'SKIPPED':
-        return 'text-gray-700 bg-gray-50 border-gray-200'
-      default:
-        return 'text-gray-700 bg-gray-50 border-gray-200'
-    }
-  }
-
   const formatDuration = (milliseconds) => {
     if (!milliseconds || milliseconds < 0) return 'N/A'
     const totalSeconds = Math.floor(milliseconds / 1000)
@@ -137,11 +123,22 @@ function ClustersView() {
 
       {/* Group by Configuration */}
       <div className="space-y-6">
-        {Object.entries(configGroups).map(([configKey, { config, clusters: clusterList }]) => (
+        {Object.entries(configGroups).map(([configKey, { config, clusters: clusterList }]) => {
+          const isCollapsed = collapsedConfigs[configKey] !== false
+          return (
           <div key={configKey} className="dxc-card overflow-hidden">
             {/* Configuration Header */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200 p-4">
-              <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() =>
+                  setCollapsedConfigs((prev) => ({
+                    ...prev,
+                    [configKey]: prev[configKey] === false
+                  }))
+                }
+                className="w-full flex items-center justify-between text-left"
+              >
                 <div className="flex items-start gap-3">
                   <Zap className="h-5 w-5 text-blue-600 mt-1 flex-shrink-0" />
                   <div>
@@ -154,11 +151,15 @@ function ClustersView() {
                     </p>
                   </div>
                 </div>
-              </div>
+                <div className={`transition-transform ${isCollapsed ? '' : 'rotate-180'}`}>
+                  <ChevronDown className="h-5 w-5 text-gray-500" />
+                </div>
+              </button>
             </div>
 
             {/* Clusters in this configuration */}
-            <div className="divide-y divide-gray-200">
+            {!isCollapsed && (
+              <div className="divide-y divide-gray-200">
               {clusterList.map((cluster) => {
                 const startTime = cluster.start_time ? new Date(cluster.start_time).getTime() : null
                 const isRunning = cluster.state === 'RUNNING'
@@ -228,9 +229,10 @@ function ClustersView() {
                   </div>
                 )
               })}
-            </div>
+              </div>
+            )}
           </div>
-        ))}
+        )})}
       </div>
 
       {(!clusters || clusters.length === 0) && (

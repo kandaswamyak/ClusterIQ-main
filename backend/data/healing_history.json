@@ -1,0 +1,106 @@
+[
+  {
+    "timestamp": "2026-02-08T11:58:32.048169",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T12:59:24.033077",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T16:09:39.769104",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T16:33:56.284981",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T18:01:56.133563",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T21:11:06.441450",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "clusteriq",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"The cluster autotermination time cannot be less than 10 minutes.\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"6c056bca-4314-48db-a5b1-d7844f986eac\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T21:26:45.026774",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "clusteriq",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"The cluster autotermination time cannot be less than 10 minutes.\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"5c067136-0aad-4876-8f92-2a564ddefb53\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-08T21:36:48.190854",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  }
+]

@@ -34,6 +34,7 @@ class SelfHealingConfig:
             },
             "thresholds": {
                 "idle_timeout_minutes": 30,
+                "failed_restart_window_minutes": 120,
                 "max_restart_attempts": 3,
                 "cpu_utilization_low": 10,
                 "cpu_utilization_high": 90,
@@ -169,8 +170,8 @@ class HealingHistory:
         self._save_history()
     
     def get_recent_actions(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get recent healing actions"""
-        return self.history[-limit:]
+        """Get recent healing actions, sorted by newest first"""
+        return self.history[-limit:][::-1]
     
     def get_actions_for_resource(self, resource_id: str) -> List[Dict[str, Any]]:
         """Get all actions for a specific resource"""
