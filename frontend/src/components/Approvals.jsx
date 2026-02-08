@@ -82,40 +82,74 @@ function Approvals() {
 
   const recommendations = data?.recommendations || []
 
+  const getSavingsDisplay = (rec) => {
+    if (!rec) return null
+    let value = rec.estimated_savings
+    if (value === undefined || value === null || value === '') {
+      const fallbackKeys = [
+        'estimated_savings_monthly',
+        'estimated_monthly_savings_usd',
+        'estimated_savings_annual',
+        'estimated_annual_savings_usd'
+      ]
+      for (const key of fallbackKeys) {
+        if (rec[key] !== undefined && rec[key] !== null) {
+          value = rec[key]
+          break
+        }
+      }
+    }
+    if (value === undefined || value === null || value === '') return null
+    if (typeof value === 'number') return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return String(value)
+  }
+
+  const getConfidenceDisplay = (rec) => {
+    if (!rec) return null
+    const raw = rec.confidence_score ?? rec.confidence ?? rec.confidence_pct
+    if (raw === undefined || raw === null || raw === '') return null
+    if (typeof raw === 'number') {
+      const pct = raw <= 1 ? raw * 100 : raw
+      return `${Math.round(pct)}%`
+    }
+    return String(raw)
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="space-y-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Approvals</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Review Delta‑based recommendations, approve, and apply changes to Databricks.
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">Approvals</h1>
+          <p className="mt-3 text-base text-gray-600 font-medium">
+            Review Delta‑based recommendations, approve, and apply changes to Databricks
           </p>
         </div>
         <button
           onClick={handleAnalyzeDelta}
           disabled={isAnalyzing}
-          className="dxc-button-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+          className="dxc-button-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-5 w-5 mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
           {isAnalyzing ? 'Analyzing...' : 'Analyze Delta Logs'}
         </button>
       </div>
 
-      <div className="flex items-center gap-3">
-        <label className="text-sm text-gray-700 flex items-center gap-2">
-          <Filter className="h-4 w-4" />
-          Status
+      <div className="flex items-center gap-4">
+        <label className="text-sm text-gray-700 flex items-center gap-2 font-medium">
+          <Filter className="h-5 w-5 text-purple-600" />
+          Status Filter
         </label>
         <div className="flex flex-wrap gap-2">
           {STATUS_TABS.map((tab) => (
             <button
               key={tab.value}
               onClick={() => setStatusFilter(tab.value)}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all transform hover:scale-105 flex items-center gap-2 shadow-md ${
                 statusFilter === tab.value
-                  ? 'bg-primary-600 text-white shadow-md'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 border border-gray-300'
               }`}
+              style={statusFilter === tab.value ? { background: 'linear-gradient(135deg, #9333ea, #c026d3)' } : {}}
             >
               {tab.label}
               <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
@@ -145,6 +179,10 @@ function Approvals() {
       ) : (
         <div className="space-y-4">
           {recommendations.map((rec) => (
+            (() => {
+              const savingsDisplay = getSavingsDisplay(rec)
+              const confidenceDisplay = getConfidenceDisplay(rec)
+              return (
             <div key={rec.id} className="dxc-card">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
@@ -161,9 +199,14 @@ function Approvals() {
                   <div className="text-xs text-gray-500 mt-2">
                     Resource: {rec.resource_type || 'N/A'} {rec.resource_id ? `• ${rec.resource_id}` : ''}
                   </div>
-                  {rec.estimated_savings && (
+                  {savingsDisplay !== null && (
                     <div className="text-xs text-green-600 mt-1 font-medium">
-                      💰 Estimated Savings: {rec.estimated_savings}
+                      💰 Estimated Savings: {savingsDisplay}
+                    </div>
+                  )}
+                  {confidenceDisplay && (
+                    <div className="text-xs text-blue-600 mt-1 font-medium">
+                      🔎 Confidence: {confidenceDisplay}
                     </div>
                   )}
                   {rec.status_note && (
@@ -199,6 +242,8 @@ function Approvals() {
                 </div>
               </div>
             </div>
+              )
+            })()
           ))}
         </div>
       )}

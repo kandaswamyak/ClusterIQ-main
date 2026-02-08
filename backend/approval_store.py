@@ -45,11 +45,28 @@ def add_recommendations(recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         existing_ids = {item.get("id") for item in items if item.get("id")}
         new_items = []
         for rec in recs:
+            def _format_savings(value: Any) -> Optional[str]:
+                if value is None:
+                    return None
+                if isinstance(value, (int, float)):
+                    return f"${value:,.2f}"
+                if isinstance(value, str) and value.strip():
+                    return value
+                return None
+
+            estimated_savings = rec.get("estimated_savings")
+            if estimated_savings is None:
+                for key in ("estimated_savings_monthly", "estimated_monthly_savings_usd", "estimated_savings_annual", "estimated_annual_savings_usd"):
+                    if isinstance(rec.get(key), (int, float)):
+                        estimated_savings = rec.get(key)
+                        break
+
             rec_id = rec.get("id") or f"rec_{uuid4().hex}"
             if rec_id in existing_ids:
                 continue
             enriched = {
                 **rec,
+                "estimated_savings": _format_savings(estimated_savings) or rec.get("estimated_savings"),
                 "id": rec_id,
                 "status": rec.get("status", "PENDING"),
                 "created_at": rec.get("created_at", now),

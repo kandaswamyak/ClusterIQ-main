@@ -274,5 +274,36 @@ export const terminateCluster = async (clusterId) => {
   }
 }
 
+// Self-Healing API
+export const getSelfHealingConfig = async () => {
+  const response = await api.get('/api/self-healing/config')
+  return response.data
+}
+
+export const updateSelfHealingConfig = async (config) => {
+  const response = await api.post('/api/self-healing/config', config)
+  return response.data
+}
+
+export const getHealthStatus = async () => {
+  const response = await api.get('/api/self-healing/health')
+  return response.data
+}
+
+export const runSelfHealing = async () => {
+  const response = await api.post('/api/self-healing/run')
+  return response.data
+}
+
+export const getHealingHistory = async (limit = 50) => {
+  const response = await api.get(`/api/self-healing/history?limit=${limit}`)
+  return response.data
+}
+
+export const getSelfHealingStats = async () => {
+  const response = await api.get('/api/self-healing/stats')
+  return response.data
+}
+
 export default api
 

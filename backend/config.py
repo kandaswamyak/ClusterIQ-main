@@ -1,9 +1,13 @@
 """Configuration management for ClusterIQ backend."""
 import os
 from typing import List
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the backend directory
+backend_dir = Path(__file__).parent
+env_file = backend_dir / '.env'
+load_dotenv(dotenv_path=env_file)
 
 
 class Settings:
@@ -43,6 +47,13 @@ class Settings:
         "DELTA_JOB_RUN_LOGS_TABLE",
         "default.job_run_logs"
     )
+    
+    def __init__(self):
+        """Initialize and log configuration."""
+        print(f"DEBUG: DATABRICKS_HOST loaded: {bool(self.databricks_host)}")
+        print(f"DEBUG: DATABRICKS_TOKEN loaded: {bool(self.databricks_token)}")
+        print(f"DEBUG: AZURE_OPENAI_ENDPOINT loaded: {bool(self.azure_openai_endpoint)}")
+        print(f"DEBUG: AZURE_OPENAI_API_KEY loaded: {bool(self.azure_openai_api_key)}")
 
 
 settings = Settings()

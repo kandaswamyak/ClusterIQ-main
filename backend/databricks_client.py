@@ -915,3 +915,15 @@ class DatabricksClient:
             }
 
 
+def get_databricks_client() -> "DatabricksClient":
+    """Create a Databricks client using configured settings."""
+    try:
+        from config import settings
+        if not settings.databricks_host or not settings.databricks_token:
+            raise ValueError("Databricks client not configured")
+        return DatabricksClient(host=settings.databricks_host, token=settings.databricks_token)
+    except Exception as exc:
+        logger.error(f"Failed to create Databricks client: {exc}")
+        raise
+
+

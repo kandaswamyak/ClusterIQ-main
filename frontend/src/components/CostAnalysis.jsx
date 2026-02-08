@@ -20,10 +20,10 @@ function CostAnalysis() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Cost Analysis</h1>
-          <p className="mt-2 text-sm text-gray-600">Monitor and optimize your Databricks spending</p>
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">Cost Analysis</h1>
+          <p className="mt-3 text-base text-gray-600 font-medium">Monitor and optimize your Databricks spending</p>
         </div>
       </div>
 
@@ -33,36 +33,36 @@ function CostAnalysis() {
         <>
           {/* Main Cost Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-gradient-to-br from-red-50 to-red-100 border border-red-200 rounded-lg p-6">
+            <div className="metric-card" style={{ background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 100%)', border: '1px solid #ef4444' }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-red-600 mb-1">Total Cost (Hourly Estimate)</p>
-                  <p className="text-3xl font-bold text-red-700">${breakdown.total_cost.toFixed(2)}</p>
-                  <p className="text-xs text-red-600 mt-2">Based on current resources</p>
+                  <p className="text-sm font-semibold text-red-200 mb-2 uppercase tracking-wide">Total Cost (Hourly)</p>
+                  <p className="text-4xl font-extrabold text-white">${breakdown.total_cost.toFixed(2)}</p>
+                  <p className="text-sm text-red-200 mt-3">Based on current resources</p>
                 </div>
-                <DollarSign className="h-12 w-12 text-red-300" />
+                <DollarSign className="h-14 w-14 text-red-300" />
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-lg p-6">
+            <div className="metric-card" style={{ background: 'linear-gradient(135deg, #9a3412 0%, #f97316 100%)', border: '1px solid #fb923c' }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-orange-600 mb-1">Estimated Monthly</p>
-                  <p className="text-3xl font-bold text-orange-700">${breakdown.estimated_monthly.toFixed(2)}</p>
-                  <p className="text-xs text-orange-600 mt-2">~${(breakdown.estimated_monthly / 20).toFixed(2)}/day</p>
+                  <p className="text-sm font-semibold text-orange-200 mb-2 uppercase tracking-wide">Estimated Monthly</p>
+                  <p className="text-4xl font-extrabold text-white">${breakdown.estimated_monthly.toFixed(2)}</p>
+                  <p className="text-sm text-orange-200 mt-3">~${(breakdown.estimated_monthly / 20).toFixed(2)}/day</p>
                 </div>
-                <BarChart3 className="h-12 w-12 text-orange-300" />
+                <BarChart3 className="h-14 w-14 text-orange-300" />
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-lg p-6">
+            <div className="metric-card" style={{ background: 'linear-gradient(135deg, #581c87 0%, #a855f7 100%)', border: '1px solid #c084fc' }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-purple-600 mb-1">Estimated Annual</p>
-                  <p className="text-3xl font-bold text-purple-700">${breakdown.estimated_annual.toFixed(2)}</p>
-                  <p className="text-xs text-purple-600 mt-2">Projected yearly spend</p>
+                  <p className="text-sm font-semibold text-purple-200 mb-2 uppercase tracking-wide">Estimated Annual</p>
+                  <p className="text-4xl font-extrabold text-white">${breakdown.estimated_annual.toFixed(2)}</p>
+                  <p className="text-sm text-purple-200 mt-3">Projected yearly spend</p>
                 </div>
-                <TrendingDown className="h-12 w-12 text-purple-300" />
+                <TrendingDown className="h-14 w-14 text-purple-300" />
               </div>
             </div>
           </div>

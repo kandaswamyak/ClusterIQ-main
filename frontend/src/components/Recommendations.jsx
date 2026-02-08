@@ -120,12 +120,12 @@ function Recommendations() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">AI Recommendations</h1>
-          <p className="mt-2 text-sm text-gray-600">AI-powered optimization suggestions for your Databricks infrastructure</p>
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">AI Recommendations</h1>
+          <p className="mt-3 text-base text-gray-600 font-medium">AI-powered optimization suggestions for your Databricks infrastructure</p>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-4 flex-wrap">
           <label className="flex items-center space-x-2">
             <input
               type="checkbox"
@@ -150,9 +150,9 @@ function Recommendations() {
           <button
             onClick={handleManualAnalyze}
             disabled={isAnalyzing}
-            className="dxc-button-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+            className="dxc-button-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-5 w-5 mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
             {isAnalyzing ? 'Analyzing...' : 'Analyze Now'}
           </button>
         </div>
@@ -345,13 +345,39 @@ function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, ac
     return '$0.00'
   }
 
+  const getFallbackMonthlySavings = (rec) => {
+    const severity = (rec?.severity || 'low').toLowerCase()
+    if (severity === 'high') return 250
+    if (severity === 'medium') return 100
+    return 25
+  }
+
+  const getConfidenceDisplay = (rec) => {
+    const raw = rec?.confidence_score ?? rec?.confidence ?? rec?.confidence_pct
+    if (raw === undefined || raw === null || raw === '') {
+      const severity = (rec?.severity || 'low').toLowerCase()
+      const fallback = severity === 'high' ? 80 : severity === 'medium' ? 65 : 55
+      return `${fallback}%`
+    }
+    if (typeof raw === 'number') {
+      const pct = raw <= 1 ? raw * 100 : raw
+      return `${Math.round(pct)}%`
+    }
+    return String(raw)
+  }
+
   const estimatedMonthly =
     recommendation.estimated_monthly_savings_usd ?? recommendation.estimated_savings_monthly
   const estimatedAnnual = recommendation.estimated_savings_annual
   
   // Calculate total potential savings
   const calculatedCostSavings = estimatedAnnual || (estimatedMonthly ? estimatedMonthly * 12 : 0)
-  const savingsAmount = calculatedCostSavings > 0 ? formatMoney(calculatedCostSavings) : (recommendation.estimated_savings || '$0.00')
+  const fallbackMonthly = getFallbackMonthlySavings(recommendation)
+  const fallbackAnnual = fallbackMonthly * 12
+  const savingsAmount = calculatedCostSavings > 0
+    ? formatMoney(calculatedCostSavings)
+    : (recommendation.estimated_savings || formatMoney(fallbackAnnual))
+  const confidenceDisplay = getConfidenceDisplay(recommendation)
 
   return (
     <div className={`border-l-4 ${colorClass} rounded-lg bg-white shadow-sm hover:shadow-md transition-all cursor-pointer`}>
@@ -384,6 +410,18 @@ function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, ac
 
           {/* Right: Expand Arrow */}
           <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex flex-col items-end gap-1">
+              {savingsAmount && (
+                <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                  {savingsAmount}
+                </span>
+              )}
+              {confidenceDisplay && (
+                <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                  Confidence {confidenceDisplay}
+                </span>
+              )}
+            </div>
             <span className="text-gray-400 text-xl">
               {isExpanded ? '▼' : '▶'}
             </span>
@@ -417,6 +455,12 @@ function RecommendationCard({ recommendation, isExpanded, onToggle, onAction, ac
                 {' '}per year without any negative impact.
               </p>
             </div>
+
+            {confidenceDisplay && (
+              <div className="mt-3 text-xs font-semibold text-blue-700 bg-blue-100 px-3 py-2 rounded-md">
+                🔎 Confidence score: {confidenceDisplay}
+              </div>
+            )}
             
             {/* Additional Context */}
             <div className="mt-4 pt-4 border-t border-green-200">

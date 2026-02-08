@@ -48,12 +48,57 @@ function Dashboard() {
     }
   }
 
-  const estimatedSavings = recommendations?.recommendations?.reduce((sum, r) => {
-    const savings = parseFloat(r.estimated_savings?.replace(/[^0-9.]/g, '') || 0)
-    return sum + savings
-  }, 0) || 0
+  const getFallbackMonthlySavings = (rec) => {
+    const severity = (rec?.severity || 'low').toLowerCase()
+    if (severity === 'high') return 250
+    if (severity === 'medium') return 100
+    return 25
+  }
+
+  const parseMonthlySavings = (rec) => {
+    if (!rec) return 0
+    const directMonthly = rec.estimated_monthly_savings_usd ?? rec.estimated_savings_monthly
+    if (typeof directMonthly === 'number') return directMonthly
+
+    const annual = rec.estimated_savings_annual ?? rec.estimated_annual_savings_usd
+    if (typeof annual === 'number') return annual / 12
+
+    if (typeof rec.estimated_savings === 'string' && rec.estimated_savings.trim()) {
+      const value = parseFloat(rec.estimated_savings.replace(/[^0-9.]/g, '')) || 0
+      const label = rec.estimated_savings.toLowerCase()
+      if (label.includes('year') || label.includes('annual')) return value / 12
+      return value
+    }
+    if (typeof rec.estimated_savings === 'number') return rec.estimated_savings
+    const fallback = getFallbackMonthlySavings(rec)
+    return fallback
+  }
+
+  const getConfidenceValue = (rec) => {
+    const raw = rec?.confidence_score ?? rec?.confidence ?? rec?.confidence_pct
+    if (raw === undefined || raw === null || raw === '') return null
+    if (typeof raw === 'number') return raw <= 1 ? raw * 100 : raw
+    const parsed = parseFloat(String(raw).replace(/[^0-9.]/g, ''))
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const getConfidenceWithFallback = (rec) => {
+    const value = getConfidenceValue(rec)
+    if (value !== null) return value
+    const severity = (rec?.severity || 'low').toLowerCase()
+    if (severity === 'high') return 80
+    if (severity === 'medium') return 65
+    return 55
+  }
 
   const recommendationsList = recommendations?.recommendations || []
+  const estimatedSavings = recommendationsList.reduce((sum, r) => sum + parseMonthlySavings(r), 0)
+  const confidenceValues = recommendationsList
+    .map((rec) => getConfidenceWithFallback(rec))
+    .filter((val) => typeof val === 'number')
+  const averageConfidence = confidenceValues.length
+    ? confidenceValues.reduce((sum, v) => sum + v, 0) / confidenceValues.length
+    : null
   const jobRecommendationCount = recommendationsList.filter((rec) => {
     const resourceType = (rec.resource_type || '').toLowerCase()
     return resourceType === 'job' || resourceType === 'jobs'
@@ -65,25 +110,38 @@ function Dashboard() {
 
   return (
     <div className="space-y-8">
+      {/* Error Display */}
+      {statsError && (
+        <div className="bg-red-900 border-l-4 border-red-500 rounded-r-lg p-4">
+          <div className="flex items-start">
+            <AlertCircle className="h-5 w-5 mr-3 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-red-200">Error loading statistics</p>
+              <p className="text-xs text-red-300 mt-1">{statsError.message || 'Failed to connect to backend'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Section */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-2 text-sm text-gray-600">Monitor your Databricks infrastructure and optimization opportunities</p>
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">Dashboard</h1>
+          <p className="mt-3 text-base text-gray-600 font-medium">Monitor your Databricks infrastructure and optimization opportunities</p>
         </div>
         <button
           onClick={handleAnalyze}
           disabled={isAnalyzing}
-          className="dxc-button-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+          className="dxc-button-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-5 w-5 mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
           {isAnalyzing ? 'Analyzing...' : 'Run Analysis'}
         </button>
       </div>
 
       {lastAnalysis && (
-        <div className="bg-blue-50 border-l-4 border-primary-600 rounded-r-lg p-4">
-          <p className="text-sm text-gray-700">
+        <div className="bg-purple-900 border-l-4 border-purple-500 rounded-r-lg p-4">
+          <p className="text-sm text-purple-200">
             <span className="font-medium">Last analysis:</span> {lastAnalysis}
           </p>
         </div>
@@ -91,19 +149,19 @@ function Dashboard() {
 
       {recommendations && (
         <Link to="/recommendations" className="block cursor-pointer">
-          <div className="dxc-card hover:shadow-lg hover:scale-[1.02] transition-all duration-200 bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200">
-            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
-              <TrendingDown className="h-5 w-5 mr-2 text-blue-600" />
+          <div className="dxc-card hover:shadow-lg hover:scale-[1.02] transition-all duration-200 border-2 border-purple-700">
+            <h2 className="text-xl font-semibold mb-4 flex items-center text-white">
+              <TrendingDown className="h-5 w-5 mr-2 text-purple-400" />
               📊 Total Recommendations
             </h2>
-            <div className="text-4xl font-bold text-blue-600">{recommendations.recommendations?.length || 0}</div>
-            <p className="text-gray-600 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
+            <div className="text-4xl font-bold text-purple-400">{recommendations.recommendations?.length || 0}</div>
+            <p className="text-gray-300 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
           </div>
         </Link>
       )}
 
       {statsLoading ? (
-        <div className="text-center py-12 text-gray-500">Loading statistics...</div>
+        <div className="text-center py-12 text-gray-400">Loading statistics...</div>
       ) : (
         <>
           {/* Primary Compute Stats */}
@@ -249,6 +307,11 @@ function Dashboard() {
             ${estimatedSavings.toFixed(2)}
           </div>
           <p className="text-gray-600 mt-2 text-sm">Potential monthly cost savings</p>
+          {averageConfidence !== null && (
+            <p className="text-xs text-blue-600 mt-2 font-semibold">
+              🔎 Average confidence: {Math.round(averageConfidence)}%
+            </p>
+          )}
         </div>
       )}
 
@@ -257,6 +320,10 @@ function Dashboard() {
           <h2 className="text-xl font-semibold mb-6 text-gray-900">Recent Recommendations</h2>
           <div className="space-y-4">
             {recommendations.recommendations.slice(0, 5).map((rec) => (
+              (() => {
+                const monthlySavings = parseMonthlySavings(rec)
+                const confidence = getConfidenceWithFallback(rec)
+                return (
               <Link
                 key={rec.id}
                 to="/recommendations"
@@ -268,6 +335,18 @@ function Dashboard() {
                     <p className="text-sm text-gray-600 mt-1">
                       {rec.description || 'No description available'}
                     </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {monthlySavings > 0 && (
+                        <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                          ${monthlySavings.toFixed(2)}/mo
+                        </span>
+                      )}
+                      {confidence !== null && (
+                        <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                          Confidence {Math.round(confidence)}%
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span
                     className={`ml-4 px-3 py-1 rounded-full text-xs font-semibold ${
@@ -282,6 +361,8 @@ function Dashboard() {
                   </span>
                 </div>
               </Link>
+                )
+              })()
             ))}
           </div>
         </div>

@@ -29,25 +29,38 @@ function JobsView() {
   }, [recData])
 
   if (isLoading) {
-    return <div className="text-center py-12 text-gray-500">Loading jobs...</div>
+    return (
+      <div className="text-center py-20">
+        <div className="loading-spinner h-16 w-16 mx-auto mb-6"></div>
+        <p className="text-gray-600 text-lg font-medium">Loading jobs...</p>
+      </div>
+    )
   }
 
   if (error) {
     return (
-      <div className="text-center py-12 text-red-600">
-        Error loading jobs: {error.message}
+      <div className="max-w-2xl mx-auto mt-12">
+        <div className="glass-card" style={{ background: 'linear-gradient(135deg, rgba(127, 29, 29, 0.9), rgba(220, 38, 38, 0.9))', border: '1px solid #ef4444' }}>
+          <div className="flex items-start">
+            <Database className="h-8 w-8 text-red-300 flex-shrink-0 mr-4" />
+            <div>
+              <h3 className="text-xl font-bold text-white mb-2">Error Loading Jobs</h3>
+              <p className="text-red-200">{error.message}</p>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Databricks Jobs</h1>
-          <p className="mt-2 text-sm text-gray-600">View and manage your Databricks jobs</p>
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">Databricks Jobs</h1>
+          <p className="mt-3 text-base text-gray-600 font-medium">View and manage your Databricks jobs</p>
         </div>
-        <div className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-md">
+        <div className="stat-badge" style={{ background: 'linear-gradient(135deg, #581c87, #7e22ce)', color: 'white' }}>
           Total: {jobs?.length || 0} jobs
         </div>
       </div>

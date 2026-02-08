@@ -47,21 +47,43 @@ try:
         logger.info("Databricks client initialized")
     
     if settings.azure_openai_endpoint and settings.azure_openai_api_key and settings.azure_openai_deployment_name:
-        ai_agent = ClusterIQAgent(
-            azure_endpoint=settings.azure_openai_endpoint,
-            azure_api_key=settings.azure_openai_api_key,
-            azure_deployment_name=settings.azure_openai_deployment_name,
-            model=settings.openai_model
-        )
-        logger.info("AI agent initialized with Azure OpenAI")
+        logger.info("AI agent initialization deferred until first use")
     elif settings.openai_api_key:
-        ai_agent = ClusterIQAgent(
-            api_key=settings.openai_api_key,
-            model=settings.openai_model
-        )
-        logger.info("AI agent initialized")
+        logger.info("AI agent initialization deferred until first use")
 except Exception as e:
     logger.error(f"Error during startup: {str(e)}")
+
+
+def ensure_ai_agent():
+    """Lazily initialize AI agent when needed."""
+    global ai_agent
+    if ai_agent:
+        return ai_agent
+    if settings.azure_openai_endpoint and settings.azure_openai_api_key and settings.azure_openai_deployment_name:
+        try:
+            ai_agent = ClusterIQAgent(
+                azure_endpoint=settings.azure_openai_endpoint,
+                azure_api_key=settings.azure_openai_api_key,
+                azure_deployment_name=settings.azure_openai_deployment_name,
+                model=settings.openai_model
+            )
+            logger.info("AI agent initialized with Azure OpenAI")
+            return ai_agent
+        except Exception as exc:
+            logger.error(f"AI agent initialization failed: {exc}")
+            ai_agent = None
+    elif settings.openai_api_key:
+        try:
+            ai_agent = ClusterIQAgent(
+                api_key=settings.openai_api_key,
+                model=settings.openai_model
+            )
+            logger.info("AI agent initialized")
+            return ai_agent
+        except Exception as exc:
+            logger.error(f"AI agent initialization failed: {exc}")
+            ai_agent = None
+    return None
 
 
 @app.route("/")
@@ -251,6 +273,10 @@ def generate_autotermination_recommendations(clusters):
                 # If auto-termination is not set or is 0, create a recommendation
                 if autotermination_minutes == 0:
                     rec_id = f"rec_auto_{cluster_id[:8]}"
+
+                    num_workers = cluster.get("num_workers", 1)
+                    monthly_cost = (num_workers + 1) * 0.40 * 100
+                    potential_savings = monthly_cost * 0.3
                     
                     recommendations.append({
                         "id": rec_id,
@@ -258,10 +284,13 @@ def generate_autotermination_recommendations(clusters):
                         "description": f"Cluster '{cluster_name}' does not have auto-termination enabled. Enabling 15-minute auto-termination will reduce idle compute costs.",
                         "type": "cost_optimization",
                         "severity": "high" if cluster.get("state") == "RUNNING" else "medium",
+                        "confidence_score": 0.72,
                         "resource_type": "cluster",
                         "resource_id": cluster_id,
                         "resource_name": cluster_name,
-                        "estimated_savings": "30-50% idle cluster cost",
+                        "estimated_savings": f"${potential_savings:.2f}/month",
+                        "estimated_savings_monthly": potential_savings,
+                        "estimated_savings_annual": potential_savings * 12,
                         "risk": "low",
                         "action": {
                             "type": "enable_autotermination",
@@ -366,6 +395,7 @@ def analyze_jobs_and_clusters():
                         "id": f"rec_{len(recommendations)}",
                         "type": "cost_leak",
                         "severity": "medium",
+                        "confidence_score": 0.68,
                         "title": f"Optimize cluster: {cluster.get('cluster_name', 'Unknown')}",
                         "description": f"Cluster is running with {num_workers} workers. Consider downsizing or enabling auto-termination.",
                         "resource_type": "cluster",
@@ -388,6 +418,7 @@ def analyze_jobs_and_clusters():
                         "id": f"rec_{len(recommendations)}",
                         "type": "optimization",
                         "severity": "low",
+                        "confidence_score": 0.55,
                         "title": f"Review job: {job.get('job_name', 'Unknown')}",
                         "description": "Job has no configured tasks. Consider reviewing job configuration.",
                         "resource_type": "job",
@@ -397,9 +428,22 @@ def analyze_jobs_and_clusters():
                         "estimated_savings_annual": 0,
                         "risk": "Low",
                     })
+
+        # Add auto-termination recommendations to provide actionable savings
+        try:
+            autotermination_recs = generate_autotermination_recommendations(clusters)
+            if autotermination_recs:
+                existing_ids = {rec.get("id") for rec in recommendations if rec.get("id")}
+                for rec in autotermination_recs:
+                    if rec.get("id") not in existing_ids:
+                        recommendations.append(rec)
+                logger.info(f"Added {len(autotermination_recs)} auto-termination recommendations")
+        except Exception as auto_error:
+            logger.warning(f"Error generating auto-termination recommendations: {auto_error}")
         
         # Try optional AI analysis (with tight timeout, non-blocking)
-        if ai_agent and recommendations:  # Only do AI if we have base recommendations
+        ai_agent_instance = ensure_ai_agent()
+        if ai_agent_instance and recommendations:  # Only do AI if we have base recommendations
             try:
                 logger.info("Attempting optional AI-enhanced analysis (10-second timeout)...")
                 ai_results = {"recommendations": None, "summary": None}
@@ -409,7 +453,7 @@ def analyze_jobs_and_clusters():
                     try:
                         # Do NOT fetch job runs - too slow
                         # Just enhance existing recommendations with AI insights
-                        ai_recs = ai_agent.analyze_jobs_and_clusters(
+                        ai_recs = ai_agent_instance.analyze_jobs_and_clusters(
                             jobs=jobs[:5],  # Limit to first 5 jobs
                             clusters=clusters[:5],  # Limit to first 5 clusters
                             job_runs={}  # Empty job runs to speed up analysis
@@ -417,7 +461,7 @@ def analyze_jobs_and_clusters():
                         
                         if ai_recs and len(ai_recs) > 0:
                             ai_results["recommendations"] = ai_recs
-                            ai_results["summary"] = ai_agent.generate_summary(jobs=jobs, clusters=clusters)
+                            ai_results["summary"] = ai_agent_instance.generate_summary(jobs=jobs, clusters=clusters)
                     except Exception as e:
                         logger.debug(f"AI analysis detailed error: {str(e)}")
                 
@@ -447,11 +491,33 @@ def analyze_jobs_and_clusters():
                 "id": "rec_no_data",
                 "type": "info",
                 "severity": "low",
+                "confidence_score": 0.5,
                 "title": "Analysis Complete",
                 "description": f"Analyzed {len(jobs)} jobs and {len(clusters)} clusters. No immediate optimization opportunities detected.",
                 "estimated_savings": "Continue monitoring",
                 "risk": "None",
             }]
+
+        # Normalize confidence scores and savings where missing
+        for rec in recommendations:
+            if rec.get("confidence_score") is None and rec.get("confidence") is None:
+                rec["confidence_score"] = 0.6
+
+            monthly_value = rec.get("estimated_savings_monthly")
+            monthly_alt = rec.get("estimated_monthly_savings_usd")
+            monthly_numeric = None
+            if isinstance(monthly_value, (int, float)):
+                monthly_numeric = float(monthly_value)
+            elif isinstance(monthly_alt, (int, float)):
+                monthly_numeric = float(monthly_alt)
+
+            if monthly_numeric is None or monthly_numeric <= 0:
+                severity = (rec.get("severity") or "low").lower()
+                fallback_monthly = 25.0 if severity == "low" else 100.0 if severity == "medium" else 250.0
+                rec["estimated_savings_monthly"] = fallback_monthly
+                rec["estimated_savings_annual"] = fallback_monthly * 12
+                if not rec.get("estimated_savings") or str(rec.get("estimated_savings")).strip() in {"$0.00", "0", "0.0", "0.00"}:
+                    rec["estimated_savings"] = f"${fallback_monthly:.2f}/month"
 
         cluster_ids = {c.get("cluster_id") for c in clusters if c.get("cluster_id")}
         cluster_name_to_id = {
@@ -959,7 +1025,8 @@ def summarize_delta_table():
     if not databricks_client:
         return jsonify({"error": "Databricks client not configured"}), 503
     
-    if not ai_agent:
+    ai_agent_instance = ensure_ai_agent()
+    if not ai_agent_instance:
         return jsonify({"error": "AI agent not configured"}), 503
     
     try:
@@ -985,7 +1052,7 @@ def summarize_delta_table():
             return jsonify(table_data), 400
         
         # Generate summary using AI
-        summary = ai_agent.summarize_delta_table_data(
+        summary = ai_agent_instance.summarize_delta_table_data(
             table_data=table_data,
             analysis_focus=analysis_focus
         )
@@ -1005,7 +1072,8 @@ def analyze_delta_tables():
     if not databricks_client:
         return jsonify({"error": "Databricks client not configured"}), 503
     
-    if not ai_agent:
+    ai_agent_instance = ensure_ai_agent()
+    if not ai_agent_instance:
         return jsonify({"error": "AI agent not configured"}), 503
     
     try:
@@ -1091,7 +1159,7 @@ def analyze_delta_tables():
                 }), 400
             
             # Analyze with actual data
-            analysis = ai_agent.analyze_delta_logs(
+            analysis = ai_agent_instance.analyze_delta_logs(
                 cluster_events=cluster_events,
                 cluster_logs=cluster_logs,
                 job_run_logs=job_run_logs,
@@ -1246,6 +1314,21 @@ def apply_recommendation(rec_id):
                 return (None, None)
             return (int(match.group(1)), int(match.group(2)))
 
+        def format_estimated_savings(recommendation: Dict[str, Any]) -> Optional[str]:
+            if not recommendation:
+                return None
+            value = recommendation.get("estimated_savings")
+            if value is None:
+                for key in ("estimated_savings_monthly", "estimated_monthly_savings_usd", "estimated_savings_annual", "estimated_annual_savings_usd"):
+                    if isinstance(recommendation.get(key), (int, float)):
+                        value = recommendation.get(key)
+                        break
+            if isinstance(value, (int, float)):
+                return f"${value:,.2f}"
+            if isinstance(value, str) and value.strip():
+                return value
+            return None
+
         if action_type in {"terminate_cluster", "resize_cluster", "enable_autotermination"}:
             target_id = resolve_cluster_id(target_id)
 
@@ -1309,6 +1392,12 @@ def apply_recommendation(rec_id):
             )
         
         if result.get("status") == "success":
+            savings_label = format_estimated_savings(rec)
+            if savings_label:
+                if applied_note:
+                    applied_note = f"{applied_note} Estimated savings: {savings_label}"
+                else:
+                    applied_note = f"Applied successfully. Estimated savings: {savings_label}"
             updated = update_status(rec_id, "APPLIED", note=applied_note)
             logger.info(f"Successfully applied recommendation {rec_id}")
             return jsonify({
@@ -1630,6 +1719,314 @@ def clear_logs():
 
 
 # Setup logging for the app
+
+# ============================================================================
+# SELF-HEALING API ENDPOINTS
+# ============================================================================
+
+@app.route("/api/self-healing/config", methods=["GET", "POST"])
+def self_healing_config():
+    """Get or update self-healing configuration."""
+    try:
+        from self_healing_config import get_config
+        
+        config = get_config()
+        
+        if request.method == "POST":
+            updates = request.get_json() or {}
+            config.update_config(updates)
+            logger.info(f"Self-healing config updated: {updates}")
+            return jsonify({
+                "success": True,
+                "message": "Configuration updated",
+                "config": config.config
+            }), 200
+        
+        # GET method
+        return jsonify({
+            "success": True,
+            "config": config.config
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error managing self-healing config: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/self-healing/health", methods=["GET"])
+def get_health_status():
+    """Get current health status of all clusters."""
+    logger.info("Health check endpoint called")
+    try:
+        # Get cluster list quickly without detailed health checks
+        clusters = databricks_client.get_all_clusters()
+        logger.info(f"Got {len(clusters)} clusters")
+        
+        total = len(clusters)
+        healthy_count = 0
+        unhealthy_count = 0
+        
+        for c in clusters:
+            state = c.get("state", "UNKNOWN")
+            if state == "RUNNING":
+                healthy_count += 1
+            elif state in ["FAILED", "ERROR"]:
+                unhealthy_count += 1
+        
+        health_percentage = 0.0
+        if total > 0:
+            health_percentage = (healthy_count / total) * 100.0
+        
+        response_data = {
+            "success": True,
+            "summary": {
+                "total_clusters": int(total),
+                "healthy": int(healthy_count),
+                "unhealthy": int(unhealthy_count),
+                "health_percentage": round(health_percentage, 2)
+            },
+            "auto_healable": [],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"Returning health status: {response_data}")
+        return jsonify(response_data), 200
+    
+    except Exception as e:
+        logger.error(f"Error checking health: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/self-healing/run", methods=["POST"])
+def run_self_healing():
+    """Manually trigger self-healing process."""
+    try:
+        from auto_remediation import AutoRemediation
+        from self_healing_config import get_config, get_history
+        
+        logger.info("Self-healing run triggered")
+        
+        # Get config and history to see what's enabled
+        config = get_config()
+        history = get_history()
+        
+        if not databricks_client:
+            return jsonify({
+                "success": False,
+                "error": "Databricks client not initialized",
+                "actions_taken": 0,
+                "scanned_clusters": 0
+            }), 500
+        
+        # Create remediation engine
+        remediation = AutoRemediation(databricks_client)
+        
+        # Run healing with detailed diagnostics
+        actions_taken = 0
+        results = []
+        diagnostics = []
+        
+        try:
+            # Get current clusters
+            clusters = databricks_client.get_all_clusters()
+            logger.info(f"Scanned {len(clusters)} clusters for healing")
+            
+            failed_clusters = []
+            running_clusters = []
+            
+            # Analyze clusters
+            for cluster in clusters:
+                cluster_id = cluster.get("cluster_id")
+                cluster_name = cluster.get("cluster_name", "Unknown")
+                state = cluster.get("state", "UNKNOWN")
+                
+                logger.info(f"Checking cluster {cluster_name} ({cluster_id}): {state}")
+                
+                if state in ["FAILED", "ERROR"]:
+                    failed_clusters.append((cluster_id, cluster_name, state))
+                    diagnostics.append({
+                        "cluster_id": cluster_id,
+                        "cluster_name": cluster_name,
+                        "issue": f"Cluster is in {state} state",
+                        "action_available": "auto_restart_failed_clusters"
+                    })
+                
+                if state == "RUNNING":
+                    running_clusters.append((cluster_id, cluster_name))
+            
+            # Process failed clusters - auto-restart
+            if config.is_feature_enabled("auto_restart_failed_clusters"):
+                for cluster_id, cluster_name, state in failed_clusters:
+                    try:
+                        logger.info(f"Auto-restarting failed cluster {cluster_name}")
+                        result = remediation.auto_restart_cluster(cluster_id, f"Auto-restart triggered for {state} cluster")
+                        if result.get("success"):
+                            actions_taken += 1
+                            # Record action in history
+                            history.add_action(
+                                action_type="auto_restart",
+                                resource_id=cluster_id,
+                                resource_type="cluster",
+                                status="success",
+                                details={
+                                    "cluster_name": cluster_name,
+                                    "reason": f"Auto-restart triggered for {state} cluster",
+                                    "dry_run": config.config.get("safety", {}).get("dry_run", False)
+                                }
+                            )
+                            results.append({
+                                "action": "restart",
+                                "cluster_id": cluster_id,
+                                "cluster_name": cluster_name,
+                                "status": "success",
+                                "message": f"Successfully restarted {cluster_name}"
+                            })
+                            logger.info(f"Successfully restarted {cluster_name}")
+                        else:
+                            # Record failed action
+                            history.add_action(
+                                action_type="auto_restart",
+                                resource_id=cluster_id,
+                                resource_type="cluster",
+                                status="failed",
+                                details={
+                                    "cluster_name": cluster_name,
+                                    "reason": result.get("message", "Unknown error"),
+                                    "dry_run": config.config.get("safety", {}).get("dry_run", False)
+                                }
+                            )
+                            results.append({
+                                "action": "restart",
+                                "cluster_id": cluster_id,
+                                "cluster_name": cluster_name,
+                                "status": "failed",
+                                "message": result.get("message", "Unknown error")
+                            })
+                    except Exception as e:
+                        logger.error(f"Error auto-restarting cluster {cluster_name}: {e}")
+                        history.add_action(
+                            action_type="auto_restart",
+                            resource_id=cluster_id,
+                            resource_type="cluster",
+                            status="error",
+                            details={
+                                "cluster_name": cluster_name,
+                                "error": str(e),
+                                "dry_run": config.config.get("safety", {}).get("dry_run", False)
+                            }
+                        )
+                        results.append({
+                            "action": "restart",
+                            "cluster_id": cluster_id,
+                            "cluster_name": cluster_name,
+                            "status": "error",
+                            "message": str(e)
+                        })
+            else:
+                diagnostics.append({
+                    "issue": f"Found {len(failed_clusters)} failed clusters but auto_restart_failed_clusters is disabled",
+                    "action_available": "Enable auto_restart_failed_clusters in config"
+                })
+            
+            # Summary
+            summary = {
+                "scanned_clusters": len(clusters),
+                "running_clusters": len(running_clusters),
+                "failed_clusters": len(failed_clusters),
+                "actions_taken": actions_taken,
+                "actions_available": {
+                    "auto_restart": len(failed_clusters) if config.is_feature_enabled("auto_restart_failed_clusters") else 0,
+                    "auto_terminate": len(running_clusters) if config.is_feature_enabled("auto_terminate_idle_clusters") else 0
+                }
+            }
+            
+            response = {
+                "success": True,
+                "summary": summary,
+                "results": results,
+                "diagnostics": diagnostics,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            logger.info(f"Self-healing run completed: {summary}")
+            return jsonify(response), 200
+        
+        except Exception as cluster_error:
+            logger.error(f"Error during cluster analysis: {str(cluster_error)}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": f"Error during healing: {str(cluster_error)}",
+                "actions_taken": 0
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error running self-healing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "actions_taken": 0
+        }), 500
+
+
+@app.route("/api/self-healing/history", methods=["GET"])
+def get_healing_history():
+    """Get history of self-healing actions."""
+    try:
+        from self_healing_config import get_history
+        
+        history = get_history()
+        limit = request.args.get("limit", 50, type=int)
+        
+        recent = history.get_recent_actions(limit=limit)
+        stats = history.get_stats()
+        
+        return jsonify({
+            "success": True,
+            "history": recent,
+            "stats": stats
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error retrieving healing history: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/self-healing/stats", methods=["GET"])
+def get_self_healing_stats():
+    """Get self-healing statistics and metrics."""
+    try:
+        from self_healing_config import get_config, get_history
+        from health_monitor import run_health_check
+        
+        config = get_config()
+        history = get_history()
+        health = run_health_check()
+        
+        return jsonify({
+            "success": True,
+            "enabled": config.is_enabled(),
+            "dry_run": config.is_dry_run(),
+            "health_summary": health.get("summary", {}),
+            "healing_stats": history.get_stats(),
+            "auto_healable_issues": len(health.get("auto_healable", []))
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error retrieving self-healing stats: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 setup_logging(logger)
 
 

@@ -31,13 +31,26 @@ function ClustersView() {
   }, [recData])
 
   if (isLoading) {
-    return <div className="text-center py-12 text-gray-500">Loading clusters...</div>
+    return (
+      <div className="text-center py-20">
+        <div className="loading-spinner h-16 w-16 mx-auto mb-6"></div>
+        <p className="text-gray-600 text-lg font-medium">Loading clusters...</p>
+      </div>
+    )
   }
 
   if (error) {
     return (
-      <div className="text-center py-12 text-red-600">
-        Error loading clusters: {error.message}
+      <div className="max-w-2xl mx-auto mt-12">
+        <div className="glass-card" style={{ background: 'linear-gradient(135deg, rgba(127, 29, 29, 0.9), rgba(220, 38, 38, 0.9))', border: '1px solid #ef4444' }}>
+          <div className="flex items-start">
+            <AlertCircle className="h-8 w-8 text-red-300 flex-shrink-0 mr-4" />
+            <div>
+              <h3 className="text-xl font-bold text-white mb-2">Error Loading Clusters</h3>
+              <p className="text-red-200">{error.message}</p>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -112,12 +125,12 @@ function ClustersView() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Databricks Clusters</h1>
-          <p className="mt-2 text-sm text-gray-600">Monitor and manage clusters organized by configuration</p>
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">Databricks Clusters</h1>
+          <p className="mt-3 text-base text-gray-600 font-medium">Monitor and manage clusters organized by configuration</p>
         </div>
-        <div className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-md">
+        <div className="stat-badge" style={{ background: 'linear-gradient(135deg, #1e3a8a, #3b82f6)', color: 'white' }}>
           Total: {clusters?.length || 0} clusters | {Object.keys(configGroups).length} configurations
         </div>
       </div>
