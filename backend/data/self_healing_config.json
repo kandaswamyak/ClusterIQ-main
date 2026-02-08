@@ -1,0 +1,60 @@
+{
+  "enabled": true,
+  "features": {
+    "auto_restart_failed_clusters": false,
+    "auto_terminate_idle_clusters": true,
+    "auto_scale_adjustments": false,
+    "auto_apply_optimizations": false,
+    "proactive_health_checks": false
+  },
+  "thresholds": {
+    "idle_timeout_minutes": 30,
+    "max_restart_attempts": 3,
+    "cpu_utilization_low": 10,
+    "cpu_utilization_high": 90,
+    "memory_utilization_high": 85,
+    "cost_spike_threshold_percent": 50
+  },
+  "rules": {
+    "auto_restart": {
+      "enabled": true,
+      "conditions": [
+        "FAILED",
+        "ERROR",
+        "TERMINATING"
+      ],
+      "max_attempts": 3,
+      "backoff_minutes": 5
+    },
+    "auto_terminate": {
+      "enabled": true,
+      "idle_minutes": 30,
+      "exclude_tags": [
+        "production",
+        "critical"
+      ]
+    },
+    "auto_scale": {
+      "enabled": false,
+      "scale_up_cpu_threshold": 80,
+      "scale_down_cpu_threshold": 20,
+      "min_workers": 1,
+      "max_workers": 10
+    }
+  },
+  "notifications": {
+    "enabled": true,
+    "channels": [
+      "dashboard",
+      "log"
+    ],
+    "notify_on_success": true,
+    "notify_on_failure": true
+  },
+  "safety": {
+    "dry_run": false,
+    "require_confirmation_for_critical": true,
+    "max_actions_per_hour": 10,
+    "exclude_clusters": []
+  }
+}
