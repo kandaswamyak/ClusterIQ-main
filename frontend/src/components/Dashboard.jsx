@@ -7,11 +7,16 @@ import { Activity, Database, TrendingDown, AlertCircle, RefreshCw, AlertTriangle
 function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [lastAnalysis, setLastAnalysis] = useState(null)
+  const [hasRunAnalysis, setHasRunAnalysis] = useState(() => {
+    // Check localStorage to persist state across navigation
+    return localStorage.getItem('clusteriq_analysis_run') === 'true'
+  })
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats, error: statsError } = useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    enabled: hasRunAnalysis,
+    refetchInterval: hasRunAnalysis ? 30000 : false, // Refresh every 30 seconds only after analysis
   })
 
   // Debug: Log stats to see what we're getting
@@ -25,25 +30,29 @@ function Dashboard() {
   const { data: recommendations, refetch: refetchRecommendations } = useQuery({
     queryKey: ['recommendations-realtime'],
     queryFn: fetchRecommendationsRealtime,
-    refetchInterval: 30000,
+    enabled: hasRunAnalysis,
+    refetchInterval: hasRunAnalysis ? 30000 : false,
   })
 
   const { data: logsStats, isLoading: logsStatsLoading } = useQuery({
     queryKey: ['logs-stats'],
     queryFn: fetchLogsStats,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    enabled: hasRunAnalysis,
+    refetchInterval: hasRunAnalysis ? 30000 : false,
   })
 
   const { data: healingStats } = useQuery({
     queryKey: ['self-healing-stats'],
     queryFn: getSelfHealingStats,
-    refetchInterval: 30000,
+    enabled: hasRunAnalysis,
+    refetchInterval: hasRunAnalysis ? 30000 : false,
   })
 
   const { data: healingHistory } = useQuery({
     queryKey: ['healing-history'],
     queryFn: () => getHealingHistory(10),
-    refetchInterval: 30000,
+    enabled: hasRunAnalysis,
+    refetchInterval: hasRunAnalysis ? 30000 : false,
   })
 
   const handleAnalyze = async () => {
@@ -51,6 +60,8 @@ function Dashboard() {
     try {
       await analyzeJobsAndClusters()
       setLastAnalysis(new Date().toLocaleString())
+      setHasRunAnalysis(true)
+      localStorage.setItem('clusteriq_analysis_run', 'true')
       refetchRecommendations()
       refetchStats()
     } catch (error) {
@@ -120,10 +131,10 @@ function Dashboard() {
   }
 
   const isActiveRecommendation = (rec) => {
-    const status = (rec?.status || '').toLowerCase()
+    const status = (rec?.status || '').toUpperCase()
     if (!status) return true
-    // Show pending and failed items (failed can be retried)
-    return status === 'pending' || status === 'failed'
+    // Show pending, failed, and approved items (approved can be applied)
+    return status === 'PENDING' || status === 'FAILED' || status === 'APPROVED'
   }
 
   // Get unique recommendations by deduplicating based on resource_id + type
@@ -184,16 +195,28 @@ function Dashboard() {
     return resourceType === 'cluster' || resourceType === 'clusters'
   }).length
   const recentRecommendations = [...recommendationsList].sort((a, b) => {
+    // Highest priority: clusteriq auto-termination recommendations
+    const aIsClusteriqAutoTerm = (a.resource_name || '').toLowerCase().includes('clusteriq') && 
+                                  (a.title || '').toLowerCase().includes('auto-termination')
+    const bIsClusteriqAutoTerm = (b.resource_name || '').toLowerCase().includes('clusteriq') && 
+                                  (b.title || '').toLowerCase().includes('auto-termination')
+    
+    if (aIsClusteriqAutoTerm && !bIsClusteriqAutoTerm) return -1
+    if (!aIsClusteriqAutoTerm && bIsClusteriqAutoTerm) return 1
+    
+    // Then sort by type priority
     const typeOrder = {
       execution_error: 0,
       stuck_pending_job: 1,
       frequent_retries: 2,
-      cost_leak: 3,
+      cost_optimization: 3,
       idle_cluster: 4,
-      optimization: 5,
-      other: 6
+      cost_leak: 5,
+      optimization: 6,
+      other: 7
     }
     const severityOrder = { high: 0, medium: 1, low: 2 }
+    
     const aType = (a.type || 'other').toLowerCase()
     const bType = (b.type || 'other').toLowerCase()
     const typeDiff = (typeOrder[aType] ?? 99) - (typeOrder[bType] ?? 99)
@@ -242,7 +265,7 @@ function Dashboard() {
         </div>
       )}
 
-      {recommendations && (
+      {hasRunAnalysis && recommendations && (
         <Link to="/recommendations" className="block cursor-pointer">
           <div className="dxc-card hover:shadow-lg hover:scale-[1.02] transition-all duration-200 border-2 border-purple-700">
             <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-900">
@@ -253,6 +276,17 @@ function Dashboard() {
             <p className="text-gray-600 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
           </div>
         </Link>
+      )}
+
+      {!hasRunAnalysis && (
+        <div className="dxc-card text-center py-8 border-2 border-purple-300 border-dashed">
+          <Activity className="h-12 w-12 mx-auto text-purple-400 mb-3" />
+          <h2 className="text-xl font-bold text-gray-700">Welcome to ClusterIQ Dashboard</h2>
+          <p className="text-gray-500 mt-2">Click "Run Analysis" to start monitoring your Databricks infrastructure</p>
+          <div className="mt-4 inline-flex items-center px-4 py-2 bg-purple-50 rounded-lg">
+            <span className="text-sm text-purple-700 font-medium">💡 No metrics available yet</span>
+          </div>
+        </div>
       )}
 
       {statsLoading ? (
@@ -282,7 +316,7 @@ function Dashboard() {
                   )}
                   <Link to="/recommendations" className="inline-flex items-center text-xs text-green-600 hover:text-green-800 hover:underline">
                     <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
-                    💰 {jobRecommendationCount} $ recommendations
+                    💰 {jobRecommendationCount}  recommendations
                   </Link>
                   {jobRecommendationSavings > 0 && (
                     <div className="text-xs text-green-700 font-semibold">
@@ -300,7 +334,7 @@ function Dashboard() {
               footer={
                 <Link to="/recommendations" className="mt-2 inline-flex items-center text-xs text-green-600 hover:text-green-800 font-semibold hover:underline">
                   <Lightbulb className="h-4 w-4 mr-1 text-amber-500" />
-                  💰 {clusterRecommendationCount} $ recommendations
+                  💰 {clusterRecommendationCount}  recommendations
                 </Link>
               }
             />
@@ -429,7 +463,7 @@ function Dashboard() {
         </div>
       )}
 
-      {recommendations && executionErrorRecs.length > 0 && (
+      {hasRunAnalysis && recommendations && executionErrorRecs.length > 0 && (
         <div className="dxc-card border-l-4 border-red-500">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-semibold flex items-center text-gray-900">
@@ -474,7 +508,7 @@ function Dashboard() {
         </div>
       )}
 
-      {recommendations && recommendations.recommendations?.length > 0 && (
+      {hasRunAnalysis && recommendations && recommendations.recommendations?.length > 0 && (
         <div className="dxc-card">
           <h2 className="text-xl font-semibold mb-6 text-gray-900">Recent Recommendations</h2>
           <div className="space-y-4">
@@ -528,16 +562,17 @@ function Dashboard() {
       )}
 
       {/* Self-Healing Activity */}
-      <div className="dxc-card border-l-4 border-green-500">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center text-gray-900">
-            <Shield className="h-5 w-5 mr-2 text-green-600" />
-            Self-Healing Status
-          </h2>
-          <Link to="/self-healing" className="text-xs font-semibold text-green-600 hover:text-green-800 hover:underline">
-            View Details →
-          </Link>
-        </div>
+      {hasRunAnalysis && (
+        <div className="dxc-card border-l-4 border-green-500">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold flex items-center text-gray-900">
+              <Shield className="h-5 w-5 mr-2 text-green-600" />
+              Self-Healing Status
+            </h2>
+            <Link to="/self-healing" className="text-xs font-semibold text-green-600 hover:text-green-800 hover:underline">
+              View Details →
+            </Link>
+          </div>
 
         {healingStats ? (
           <div className="space-y-4">
@@ -604,6 +639,7 @@ function Dashboard() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

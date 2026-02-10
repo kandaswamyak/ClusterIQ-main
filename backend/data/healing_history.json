@@ -212,5 +212,300 @@
       "dry_run": false
     },
     "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T11:33:37.212475",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T12:25:50.583701",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T12:25:56.206630",
+    "action_type": "enable_autotermination",
+    "resource_id": "0210-063705-2hp6n25e",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v4",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0210-063705-2hp6n25e created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"bce3e5f4-0c36-49a9-8e4a-b90c5d4e8439\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T12:26:11.696560",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 1127.5153166666666,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T12:54:28.113216",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T12:54:34.125783",
+    "action_type": "enable_autotermination",
+    "resource_id": "0210-071636-iv492isi",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v5",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0210-071636-iv492isi created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"226795e0-19f2-41b8-8be8-dc6795728fb7\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T12:54:49.499646",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 1156.1450333333335,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T15:04:01.561098",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T17:52:21.276559",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T18:32:30.322101",
+    "action_type": "restart_failed_job",
+    "resource_id": "183934962109974",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "Restart_Failed",
+      "job_id": 183934962109974,
+      "new_run_id": 748648527339061,
+      "failed_run_id": 95434570156569,
+      "error_message": "Task restar_failed failed with message: Workload failed, see run output for details."
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T18:32:37.469812",
+    "action_type": "restart_failed_job",
+    "resource_id": "130082990215176",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "Code_Optimise",
+      "job_id": 130082990215176,
+      "new_run_id": 29552032124928,
+      "failed_run_id": 566679513538363,
+      "error_message": "Task Code_Optimise failed with message: Workload failed, see run output for details."
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T20:26:24.304248",
+    "action_type": "enable_autotermination",
+    "resource_id": "0210-131436-pdv3eraa",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v6",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0210-131436-pdv3eraa created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"4bae37c5-2045-4ff5-ab9b-27de993b85c3\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T20:26:41.648841",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 1607.9826500000001,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:07:43.567557",
+    "action_type": "enable_autotermination",
+    "resource_id": "0210-150952-hrtqw97m",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v7",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0210-150952-hrtqw97m created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"0c09ff5b-16f3-4723-8597-107e61dccf18\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:08:00.635019",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 1649.2972833333333,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:16:50.423721",
+    "action_type": "enable_autotermination",
+    "resource_id": "0210-154015-7zerw1wi",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v8",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0210-154015-7zerw1wi created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"cd482153-da22-4eb6-9371-120448483eb4\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:17:10.076739",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 1658.4266166666666,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:18:11.491506",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:29:00.387547",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:42:09.576654",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-10T21:42:27.869583",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 1683.7449000000001,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
   }
 ]

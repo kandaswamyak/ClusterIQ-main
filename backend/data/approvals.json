@@ -70,9 +70,10 @@
       }
     },
     "id": "rec_a93eeb3544f944bf9b264a02763b6e58",
-    "status": "PENDING",
+    "status": "REJECTED",
     "created_at": "2026-02-09T16:48:11.876448+05:30",
-    "updated_at": "2026-02-09T16:48:11.876448+05:30"
+    "updated_at": "2026-02-10T21:06:57.743593+05:30",
+    "status_note": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Node type Standard_D2ds_v5 is not supported. Supported node types: Standard_DS3_v2, Standard_DS4_v2, Standard_DS5_v2, Standard_D4s_v3, Standard_D8s_v3, Standard_D16s_v3, Standard_D32s_v3, Standard_D64s_v3, Standard_D4a_v4, Standard_D8a_v4, Standard_D16a_v4, Standard_D32a_v4, Standard_D48a_v4, Standard_D64a_v4, Standard_D96a_v4, Standard_D8as_v4, Standard_D16as_v4, Standard_D32as_v4, Standard_D48as_v4, Standard_D64as_v4, Standard_D96as_v4, Standard_D4ds_v4, Standard_D8ds_v4, Standard_D16ds_v4, Standard_D32ds_v4, Standard_D48ds_v4, Standard_D64ds_v4, Standard_D3_v2, Standard_D4_v2, Standard_D5_v2, Standard_D8_v3, Standard_D16_v3, Standard_D32_v3, Standard_D64_v3, Standard_D4s_v5, Standard_D8s_v5, Standard_D16s_v5, Standard_D32s_v5, Standard_D48s_v5, Standard_D64s_v5, Standard_D96s_v5, Standard_D4ds_v5, Standard_D8ds_v5, Standard_D16ds_v5, Standard_D32ds_v5, Standard_D48ds_v5, Standard_D64ds_v5, Standard_D96ds_v5, Standard_D4as_v5, Standard_D8as_v5, Standard_D16as_v5, Standard_D32as_v5, Standard_D48as_v5, Standard_D64as_v5, Standard_D96as_v5, Standard_D4ads_v5, Standard_D8ads_v5, Standard_D16ads_v5, Standard_D32ads_v5, Standard_D48ads_v5, Standard_D64ads_v5, Standard_D96ads_v5, Standard_D4d_v4, Standard_D8d_v4, Standard_D16d_v4, Standard_D32d_v4, Standard_D48d_v4, Standard_D64d_v4, Standard_D12_v2, Standard_D13_v2, Standard_D14_v2, Standard_D15_v2, Standard_DS12_v2, Standard_DS13_v2, Standard_DS14_v2, Standard_DS15_v2, Standard_E8_v3, Standard_E16_v3, Standard_E32_v3, Standard_E64_v3, Standard_E8s_v3, Standard_E16s_v3, Standard_E32s_v3, Standard_E64s_v3, Standard_E4d_v4, Standard_E8d_v4, Standard_E16d_v4, Standard_E20d_v4, Standard_E32d_v4, Standard_E48d_v4, Standard_E64d_v4, Standard_E4ds_v4, Standard_E8ds_v4, Standard_E16ds_v4, Standard_E20ds_v4, Standard_E32ds_v4, Standard_E48ds_v4, Standard_E64ds_v4, Standard_E80ids_v4, Standard_E4a_v4, Standard_E8a_v4, Standard_E16a_v4, Standard_E20a_v4, Standard_E32a_v4, Standard_E48a_v4, Standard_E64a_v4, Standard_E96a_v4, Standard_E4as_v4, Standard_E8as_v4, Standard_E16as_v4, Standard_E20as_v4, Standard_E32as_v4, Standard_E48as_v4, Standard_E64as_v4, Standard_E96as_v4, Standard_E4s_v4, Standard_E8s_v4, Standard_E16s_v4, Standard_E20s_v4, Standard_E32s_v4, Standard_E48s_v4, Standard_E64s_v4, Standard_E80is_v4, Standard_E4s_v5, Standard_E8s_v5, Standard_E16s_v5, Standard_E20s_v5, Standard_E32s_v5, Standard_E48s_v5, Standard_E64s_v5, Standard_E96s_v5, Standard_E4ds_v5, Standard_E8ds_v5, Standard_E16ds_v5, Standard_E20ds_v5, Standard_E32ds_v5, Standard_E48ds_v5, Standard_E64ds_v5, Standard_E96ds_v5, Standard_E4as_v5, Standard_E8as_v5, Standard_E16as_v5, Standard_E20as_v5, Standard_E32as_v5, Standard_E48as_v5, Standard_E64as_v5, Standard_E96as_v5, Standard_E4ads_v5, Standard_E8ads_v5, Standard_E16ads_v5, Standard_E20ads_v5, Standard_E32ads_v5, Standard_E48ads_v5, Standard_E64ads_v5, Standard_E96ads_v5, Standard_L4s, Standard_L8s, Standard_L16s, Standard_L32s, Standard_F4, Standard_F8, Standard_F16, Standard_F4s, Standard_F8s, Standard_F16s, Standard_H8, Standard_H16, Standard_F4s_v2, Standard_F8s_v2, Standard_F16s_v2, Standard_F32s_v2, Standard_F64s_v2, Standard_F72s_v2, Standard_NC12, Standard_NC24, Standard_NC6s_v3, Standard_NC12s_v3, Standard_NC24s_v3, Standard_NC4as_T4_v3, Standard_NC8as_T4_v3, Standard_NC16as_T4_v3, Standard_NC64as_T4_v3, Standard_ND96asr_v4, Standard_L8s_v2, Standard_L16s_v2, Standard_L32s_v2, Standard_L64s_v2, Standard_L80s_v2, Standard_L8s_v3, Standard_L16s_v3, Standard_L32s_v3, Standard_L48s_v3, Standard_L64s_v3, Standard_L80s_v3, Standard_L8as_v3, Standard_L16as_v3, Standard_L32as_v3, Standard_L48as_v3, Standard_L64as_v3, Standard_L80as_v3, Standard_DC4as_v5, Standard_DC8as_v5, Standard_DC16as_v5, Standard_DC32as_v5, Standard_EC8as_v5, Standard_EC16as_v5, Standard_EC32as_v5, Standard_EC8ads_v5, Standard_EC16ads_v5, Standard_EC32ads_v5, Standard_NV36ads_A10_v5, Standard_NV36adms_A10_v5, Standard_NV72ads_A10_v5, Standard_NC24ads_A100_v4, Standard_NC48ads_A100_v4, Standard_NC96ads_A100_v4, Standard_D4pds_v6, Standard_D8pds_v6, Standard_D16pds_v6, Standard_D32pds_v6, Standard_D48pds_v6, Standard_D64pds_v6, Standard_D96pds_v6, Standard_D4plds_v6, Standard_D8plds_v6, Standard_D16plds_v6, Standard_D32plds_v6, Standard_D48plds_v6, Standard_D64plds_v6, Standard_D96plds_v6, Standard_E4pds_v6, Standard_E8pds_v6, Standard_E16pds_v6, Standard_E32pds_v6, Standard_E48pds_v6, Standard_E64pds_v6, Standard_E96pds_v6, Standard_E4ps_v6, Standard_E8ps_v6, Standard_E16ps_v6, Standard_E32ps_v6, Standard_E48ps_v6, Standard_E64ps_v6, Standard_E96ps_v6, Standard_D4pls_v6, Standard_D8pls_v6, Standard_D16pls_v6, Standard_D32pls_v6, Standard_D48pls_v6, Standard_D64pls_v6, Standard_D96pls_v6, Standard_D4ps_v6, Standard_D8ps_v6, Standard_D16ps_v6, Standard_D32ps_v6, Standard_D48ps_v6, Standard_D64ps_v6, Standard_D96ps_v6, Standard_E2ads_v6, Standard_E4ads_v6, Standard_E8ads_v6, Standard_E16ads_v6, Standard_E20ads_v6, Standard_E32ads_v6, Standard_E48ads_v6, Standard_E64ads_v6, Standard_E96ads_v6, Standard_D2ads_v6, Standard_D4ads_v6, Standard_D8ads_v6, Standard_D16ads_v6, Standard_D32ads_v6, Standard_D48ads_v6, Standard_D64ads_v6, Standard_D96ads_v6, Standard_NC40ads_H100_v5, Standard_NC80adis_H100_v5, Standard_D2ds_v6, Standard_D4ds_v6, Standard_D8ds_v6, Standard_D16ds_v6, Standard_D32ds_v6, Standard_D48ds_v6, Standard_D64ds_v6, Standard_D96ds_v6, Standard_D128ds_v6, Standard_E2ds_v6, Standard_E4ds_v6, Standard_E8ds_v6, Standard_E16ds_v6, Standard_E20ds_v6, Standard_E32ds_v6, Standard_E48ds_v6, Standard_E64ds_v6, Standard_E96ds_v6, Standard_E128ds_v6, Standard_ND96isr_H100_v5, Standard_D4s_v4, Standard_D8s_v4, Standard_D16s_v4, Standard_D32s_v4, Standard_D48s_v4, Standard_D64s_v4, Standard_DC4ads_v6, Standard_DC8ads_v6, Standard_DC16ads_v6, Standard_DC32ads_v6, Standard_DC48ads_v6, Standard_DC64ads_v6, Standard_DC96ads_v6, Standard_EC4ads_v6, Standard_EC8ads_v6, Standard_EC16ads_v6, Standard_EC32ads_v6, Standard_EC48ads_v6, Standard_EC64ads_v6, Standard_EC96ads_v6, Standard_E2ps_v6, Standard_E2pds_v6\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"b40d3b22-c77a-444e-b2ff-3f2d2e43d856\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}"
   },
   {
     "type": "PERFORMANCE",
@@ -105,9 +106,10 @@
       }
     },
     "id": "rec_537d9bbc4af34326a7534b64dfe6363a",
-    "status": "PENDING",
+    "status": "APPROVED",
     "created_at": "2026-02-09T16:50:29.033067+05:30",
-    "updated_at": "2026-02-09T16:50:29.033067+05:30"
+    "updated_at": "2026-02-10T21:01:38.970939+05:30",
+    "status_note": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Node type Standard_D2ds_v5 is not supported. Supported node types: Standard_DS3_v2, Standard_DS4_v2, Standard_DS5_v2, Standard_D4s_v3, Standard_D8s_v3, Standard_D16s_v3, Standard_D32s_v3, Standard_D64s_v3, Standard_D4a_v4, Standard_D8a_v4, Standard_D16a_v4, Standard_D32a_v4, Standard_D48a_v4, Standard_D64a_v4, Standard_D96a_v4, Standard_D8as_v4, Standard_D16as_v4, Standard_D32as_v4, Standard_D48as_v4, Standard_D64as_v4, Standard_D96as_v4, Standard_D4ds_v4, Standard_D8ds_v4, Standard_D16ds_v4, Standard_D32ds_v4, Standard_D48ds_v4, Standard_D64ds_v4, Standard_D3_v2, Standard_D4_v2, Standard_D5_v2, Standard_D8_v3, Standard_D16_v3, Standard_D32_v3, Standard_D64_v3, Standard_D4s_v5, Standard_D8s_v5, Standard_D16s_v5, Standard_D32s_v5, Standard_D48s_v5, Standard_D64s_v5, Standard_D96s_v5, Standard_D4ds_v5, Standard_D8ds_v5, Standard_D16ds_v5, Standard_D32ds_v5, Standard_D48ds_v5, Standard_D64ds_v5, Standard_D96ds_v5, Standard_D4as_v5, Standard_D8as_v5, Standard_D16as_v5, Standard_D32as_v5, Standard_D48as_v5, Standard_D64as_v5, Standard_D96as_v5, Standard_D4ads_v5, Standard_D8ads_v5, Standard_D16ads_v5, Standard_D32ads_v5, Standard_D48ads_v5, Standard_D64ads_v5, Standard_D96ads_v5, Standard_D4d_v4, Standard_D8d_v4, Standard_D16d_v4, Standard_D32d_v4, Standard_D48d_v4, Standard_D64d_v4, Standard_D12_v2, Standard_D13_v2, Standard_D14_v2, Standard_D15_v2, Standard_DS12_v2, Standard_DS13_v2, Standard_DS14_v2, Standard_DS15_v2, Standard_E8_v3, Standard_E16_v3, Standard_E32_v3, Standard_E64_v3, Standard_E8s_v3, Standard_E16s_v3, Standard_E32s_v3, Standard_E64s_v3, Standard_E4d_v4, Standard_E8d_v4, Standard_E16d_v4, Standard_E20d_v4, Standard_E32d_v4, Standard_E48d_v4, Standard_E64d_v4, Standard_E4ds_v4, Standard_E8ds_v4, Standard_E16ds_v4, Standard_E20ds_v4, Standard_E32ds_v4, Standard_E48ds_v4, Standard_E64ds_v4, Standard_E80ids_v4, Standard_E4a_v4, Standard_E8a_v4, Standard_E16a_v4, Standard_E20a_v4, Standard_E32a_v4, Standard_E48a_v4, Standard_E64a_v4, Standard_E96a_v4, Standard_E4as_v4, Standard_E8as_v4, Standard_E16as_v4, Standard_E20as_v4, Standard_E32as_v4, Standard_E48as_v4, Standard_E64as_v4, Standard_E96as_v4, Standard_E4s_v4, Standard_E8s_v4, Standard_E16s_v4, Standard_E20s_v4, Standard_E32s_v4, Standard_E48s_v4, Standard_E64s_v4, Standard_E80is_v4, Standard_E4s_v5, Standard_E8s_v5, Standard_E16s_v5, Standard_E20s_v5, Standard_E32s_v5, Standard_E48s_v5, Standard_E64s_v5, Standard_E96s_v5, Standard_E4ds_v5, Standard_E8ds_v5, Standard_E16ds_v5, Standard_E20ds_v5, Standard_E32ds_v5, Standard_E48ds_v5, Standard_E64ds_v5, Standard_E96ds_v5, Standard_E4as_v5, Standard_E8as_v5, Standard_E16as_v5, Standard_E20as_v5, Standard_E32as_v5, Standard_E48as_v5, Standard_E64as_v5, Standard_E96as_v5, Standard_E4ads_v5, Standard_E8ads_v5, Standard_E16ads_v5, Standard_E20ads_v5, Standard_E32ads_v5, Standard_E48ads_v5, Standard_E64ads_v5, Standard_E96ads_v5, Standard_L4s, Standard_L8s, Standard_L16s, Standard_L32s, Standard_F4, Standard_F8, Standard_F16, Standard_F4s, Standard_F8s, Standard_F16s, Standard_H8, Standard_H16, Standard_F4s_v2, Standard_F8s_v2, Standard_F16s_v2, Standard_F32s_v2, Standard_F64s_v2, Standard_F72s_v2, Standard_NC12, Standard_NC24, Standard_NC6s_v3, Standard_NC12s_v3, Standard_NC24s_v3, Standard_NC4as_T4_v3, Standard_NC8as_T4_v3, Standard_NC16as_T4_v3, Standard_NC64as_T4_v3, Standard_ND96asr_v4, Standard_L8s_v2, Standard_L16s_v2, Standard_L32s_v2, Standard_L64s_v2, Standard_L80s_v2, Standard_L8s_v3, Standard_L16s_v3, Standard_L32s_v3, Standard_L48s_v3, Standard_L64s_v3, Standard_L80s_v3, Standard_L8as_v3, Standard_L16as_v3, Standard_L32as_v3, Standard_L48as_v3, Standard_L64as_v3, Standard_L80as_v3, Standard_DC4as_v5, Standard_DC8as_v5, Standard_DC16as_v5, Standard_DC32as_v5, Standard_EC8as_v5, Standard_EC16as_v5, Standard_EC32as_v5, Standard_EC8ads_v5, Standard_EC16ads_v5, Standard_EC32ads_v5, Standard_NV36ads_A10_v5, Standard_NV36adms_A10_v5, Standard_NV72ads_A10_v5, Standard_NC24ads_A100_v4, Standard_NC48ads_A100_v4, Standard_NC96ads_A100_v4, Standard_D4pds_v6, Standard_D8pds_v6, Standard_D16pds_v6, Standard_D32pds_v6, Standard_D48pds_v6, Standard_D64pds_v6, Standard_D96pds_v6, Standard_D4plds_v6, Standard_D8plds_v6, Standard_D16plds_v6, Standard_D32plds_v6, Standard_D48plds_v6, Standard_D64plds_v6, Standard_D96plds_v6, Standard_E4pds_v6, Standard_E8pds_v6, Standard_E16pds_v6, Standard_E32pds_v6, Standard_E48pds_v6, Standard_E64pds_v6, Standard_E96pds_v6, Standard_E4ps_v6, Standard_E8ps_v6, Standard_E16ps_v6, Standard_E32ps_v6, Standard_E48ps_v6, Standard_E64ps_v6, Standard_E96ps_v6, Standard_D4pls_v6, Standard_D8pls_v6, Standard_D16pls_v6, Standard_D32pls_v6, Standard_D48pls_v6, Standard_D64pls_v6, Standard_D96pls_v6, Standard_D4ps_v6, Standard_D8ps_v6, Standard_D16ps_v6, Standard_D32ps_v6, Standard_D48ps_v6, Standard_D64ps_v6, Standard_D96ps_v6, Standard_E2ads_v6, Standard_E4ads_v6, Standard_E8ads_v6, Standard_E16ads_v6, Standard_E20ads_v6, Standard_E32ads_v6, Standard_E48ads_v6, Standard_E64ads_v6, Standard_E96ads_v6, Standard_D2ads_v6, Standard_D4ads_v6, Standard_D8ads_v6, Standard_D16ads_v6, Standard_D32ads_v6, Standard_D48ads_v6, Standard_D64ads_v6, Standard_D96ads_v6, Standard_NC40ads_H100_v5, Standard_NC80adis_H100_v5, Standard_D2ds_v6, Standard_D4ds_v6, Standard_D8ds_v6, Standard_D16ds_v6, Standard_D32ds_v6, Standard_D48ds_v6, Standard_D64ds_v6, Standard_D96ds_v6, Standard_D128ds_v6, Standard_E2ds_v6, Standard_E4ds_v6, Standard_E8ds_v6, Standard_E16ds_v6, Standard_E20ds_v6, Standard_E32ds_v6, Standard_E48ds_v6, Standard_E64ds_v6, Standard_E96ds_v6, Standard_E128ds_v6, Standard_ND96isr_H100_v5, Standard_D4s_v4, Standard_D8s_v4, Standard_D16s_v4, Standard_D32s_v4, Standard_D48s_v4, Standard_D64s_v4, Standard_DC4ads_v6, Standard_DC8ads_v6, Standard_DC16ads_v6, Standard_DC32ads_v6, Standard_DC48ads_v6, Standard_DC64ads_v6, Standard_DC96ads_v6, Standard_EC4ads_v6, Standard_EC8ads_v6, Standard_EC16ads_v6, Standard_EC32ads_v6, Standard_EC48ads_v6, Standard_EC64ads_v6, Standard_EC96ads_v6, Standard_E2ps_v6, Standard_E2pds_v6\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"2558dd3a-dd11-491f-8e44-83ce09e3318e\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}"
   },
   {
     "type": "PERFORMANCE",
@@ -142,10 +144,10 @@
         "autotermination_minutes": 5
       }
     },
-    "status": "PENDING",
+    "status": "APPLIED",
     "created_at": "2026-02-09T16:57:43.456762+05:30",
-    "updated_at": "2026-02-09T16:57:43.456762+05:30",
-    "status_note": "Auto-detected: No auto-termination configured"
+    "updated_at": "2026-02-10T19:38:30.728720+05:30",
+    "status_note": "Enabled 10-minute autotermination Estimated savings: $24.00/month"
   },
   {
     "id": "rec_idle_0204-144158-49xv1ode",
@@ -239,7 +241,7 @@
     "resource_type": "cluster",
     "resource_id": "0209-120838-ux373qn6",
     "resource_name": "job-601917661507559-run-45821246344505-long_running_job_cluster",
-    "status": "PENDING",
+    "status": "APPROVED",
     "current_config": {
       "num_workers": 1,
       "node_type": "Standard_DS3_v2"
@@ -260,6 +262,660 @@
     "estimated_savings_monthly": 100.0,
     "estimated_savings_annual": 1200.0,
     "created_at": "2026-02-09T17:44:15.113351+05:30",
-    "updated_at": "2026-02-09T17:44:15.113351+05:30"
+    "updated_at": "2026-02-10T21:01:35.528194+05:30",
+    "status_note": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0209-120838-ux373qn6 created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"18f1f035-504d-4465-8ec6-85b2137e6a87\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}"
+  },
+  {
+    "id": "rec_idle_0210-131436-pdv3eraa",
+    "type": "idle_cluster",
+    "severity": "medium",
+    "title": "Idle cluster detected: job-601917661507559-run-45821246344505-long_running_job_cluster_v6",
+    "description": "Cluster is idle and consuming resources. Consider terminating or enabling auto-termination.",
+    "resource_type": "cluster",
+    "resource_id": "0210-131436-pdv3eraa",
+    "resource_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v6",
+    "status": "PENDING",
+    "action": {
+      "type": "enable_autotermination",
+      "cluster_id": "0210-131436-pdv3eraa",
+      "autotermination_minutes": 15
+    },
+    "status_note": "Auto-detected from health check",
+    "created_at": "2026-02-10T19:33:25.741306+05:30",
+    "updated_at": "2026-02-10T19:33:25.741306+05:30",
+    "estimated_savings": null
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_adab5aed14134dbd85e8ff552eea8f46",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T19:39:08.619088+05:30",
+    "updated_at": "2026-02-10T19:56:09.745988+05:30",
+    "status_note": "Cluster config updated and cluster restarted with new node type. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_2e5ea907dd6f4a29b513d114b35187c0",
+    "status": "PENDING",
+    "created_at": "2026-02-10T19:39:08.619088+05:30",
+    "updated_at": "2026-02-10T19:39:08.619088+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_82d36dd881a94a76a2638414a3e673c8",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T19:39:14.263879+05:30",
+    "updated_at": "2026-02-10T20:00:22.021625+05:30",
+    "status_note": "Applied successfully. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_ef9cffa27eb9486aa9a64b911f49b1ad",
+    "status": "PENDING",
+    "created_at": "2026-02-10T19:39:14.263879+05:30",
+    "updated_at": "2026-02-10T19:39:14.263879+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_4ef3e65c03484ad0ba59da5967c1c737",
+    "status": "PENDING",
+    "created_at": "2026-02-10T20:04:12.506460+05:30",
+    "updated_at": "2026-02-10T20:04:12.506460+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_957af10a69b044a8ae5ea7942dc6ee74",
+    "status": "PENDING",
+    "created_at": "2026-02-10T20:04:12.506460+05:30",
+    "updated_at": "2026-02-10T20:04:12.506460+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_3b34f7da538940789029a649d931ba15",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T20:44:55.701687+05:30",
+    "updated_at": "2026-02-10T20:53:21.512106+05:30",
+    "status_note": "Cluster config updated and cluster restarted with new node type. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_1cc1160ac1b94154bec114e9890f752a",
+    "status": "PENDING",
+    "created_at": "2026-02-10T20:44:55.701687+05:30",
+    "updated_at": "2026-02-10T20:44:55.701687+05:30"
+  },
+  {
+    "id": "rec_idle_0210-150952-hrtqw97m",
+    "type": "cost_leak",
+    "severity": "medium",
+    "title": "Idle cluster detected: job-601917661507559-run-45821246344505-long_running_job_cluster_v7",
+    "description": "Cluster appears to be running with low utilization",
+    "resource_type": "cluster",
+    "resource_id": "0210-150952-hrtqw97m",
+    "resource_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v7",
+    "status": "REJECTED",
+    "current_config": {
+      "num_workers": 1,
+      "node_type": "Standard_DS3_v2"
+    },
+    "recommended_config": {
+      "action": "Enable auto-termination"
+    },
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0210-150952-hrtqw97m",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "estimated_savings": "Medium",
+    "risk": "Low",
+    "confidence_score": 0.6,
+    "estimated_savings_monthly": 100.0,
+    "estimated_savings_annual": 1200.0,
+    "created_at": "2026-02-10T20:47:45.123684+05:30",
+    "updated_at": "2026-02-10T21:07:04.387125+05:30",
+    "status_note": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0210-150952-hrtqw97m created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"ac925838-5f07-4c7d-902c-4da3d6eea2a3\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_43432c58e93c40febfc72061914a7989",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T20:53:51.710035+05:30",
+    "updated_at": "2026-02-10T21:32:29.641056+05:30",
+    "status_note": "Applied successfully. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_585468b481db44259e712480331a3114",
+    "status": "PENDING",
+    "created_at": "2026-02-10T20:53:51.710035+05:30",
+    "updated_at": "2026-02-10T20:53:51.710035+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_c27b425cf29b4486a472573752dd8db0",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:00:45.022277+05:30",
+    "updated_at": "2026-02-10T21:00:45.022277+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_87f6e25332454e44867d6aa98c6d0df8",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:00:45.022277+05:30",
+    "updated_at": "2026-02-10T21:00:45.022277+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_c90f778f5c874a93a7c7d72cf084fa77",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T21:01:12.708578+05:30",
+    "updated_at": "2026-02-10T21:08:10.447659+05:30",
+    "status_note": "Applied successfully. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_dd20d626bc364aa28daf03c3915bd2cf",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:01:12.708578+05:30",
+    "updated_at": "2026-02-10T21:01:12.708578+05:30"
+  },
+  {
+    "id": "rec_idle_0210-154015-7zerw1wi",
+    "type": "cost_leak",
+    "severity": "medium",
+    "title": "Idle cluster detected: job-601917661507559-run-45821246344505-long_running_job_cluster_v8",
+    "description": "Cluster appears to be running with low utilization",
+    "resource_type": "cluster",
+    "resource_id": "0210-154015-7zerw1wi",
+    "resource_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v8",
+    "status": "PENDING",
+    "current_config": {
+      "num_workers": 1,
+      "node_type": "Standard_DS3_v2"
+    },
+    "recommended_config": {
+      "action": "Enable auto-termination"
+    },
+    "action": {
+      "type": "enable_autotermination",
+      "target_id": "0210-154015-7zerw1wi",
+      "params": {
+        "autotermination_minutes": 15
+      }
+    },
+    "estimated_savings": "Medium",
+    "risk": "Low",
+    "confidence_score": 0.6,
+    "estimated_savings_monthly": 100.0,
+    "estimated_savings_annual": 1200.0,
+    "created_at": "2026-02-10T21:16:45.501341+05:30",
+    "updated_at": "2026-02-10T21:16:45.501341+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_b750fa7f7d7c4d6c809d90b059fe75bd",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:20:49.908971+05:30",
+    "updated_at": "2026-02-10T21:20:49.908971+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_f7b8982d827d4a35b696c5abcee355b1",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:20:49.908971+05:30",
+    "updated_at": "2026-02-10T21:20:49.908971+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_70ade9067cfe4ae1a6c0b357955322f0",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:28:01.106525+05:30",
+    "updated_at": "2026-02-10T21:28:01.106525+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_3b594ae2c52a47c490ac9fd2cb0561fe",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:28:01.106525+05:30",
+    "updated_at": "2026-02-10T21:28:01.106525+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_c9334c3abcac41459a7f806231d365a1",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T21:28:06.569119+05:30",
+    "updated_at": "2026-02-10T21:32:30.993054+05:30",
+    "status_note": "Applied successfully. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_8be8387bac8547129011846900d9f380",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:28:06.569119+05:30",
+    "updated_at": "2026-02-10T21:28:06.569119+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_19d8b7ca708e45d180fc9dfacabf56f3",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:30:19.542966+05:30",
+    "updated_at": "2026-02-10T21:30:19.542966+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_696ed2f6cb874a67a6dc268abc80f278",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:30:19.542966+05:30",
+    "updated_at": "2026-02-10T21:30:19.542966+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_88096387def340d8ac1e89c3769ce665",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:31:01.551952+05:30",
+    "updated_at": "2026-02-10T21:31:01.551952+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_4f6fefc32c534ab19eea20f3cc17e496",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:31:01.551952+05:30",
+    "updated_at": "2026-02-10T21:31:01.551952+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_651c4d16aaee444cbd7c43bbaeae8506",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T21:32:23.411283+05:30",
+    "updated_at": "2026-02-10T21:55:00.934236+05:30",
+    "status_note": "Cluster config updated and cluster restarted with new node type. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_351b0c4bb0484d64aa2510ccee02562a",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:32:23.411283+05:30",
+    "updated_at": "2026-02-10T21:32:23.411283+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_63d3f7b6b2db46cea8f1d60a337db44c",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:53:23.741504+05:30",
+    "updated_at": "2026-02-10T21:53:23.741504+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_9f5d40ce776343a78734ba17466b3557",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:53:23.741504+05:30",
+    "updated_at": "2026-02-10T21:53:23.741504+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_e117916265c04756b58f2f06f33b73fd",
+    "status": "APPLIED",
+    "created_at": "2026-02-10T21:53:28.257660+05:30",
+    "updated_at": "2026-02-10T21:59:35.818743+05:30",
+    "status_note": "Applied successfully. Estimated savings: $500.00"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_5453df0cf74f48c6948b65322c4015d2",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:53:28.257660+05:30",
+    "updated_at": "2026-02-10T21:53:28.257660+05:30"
+  },
+  {
+    "type": "COST_OPTIMIZATION",
+    "severity": "HIGH",
+    "title": "Right-size cluster memory",
+    "description": "Cluster clusteriq is oversized for workload. Current: Standard_D4ds_v5 (16GB, 4 cores), Recommended:Standard_DS3_v2 (14GB, 4 cores)",
+    "estimated_savings": "$500.00",
+    "resource_type": "cluster",
+    "resource_name": "clusteriq",
+    "resource_id": "clusteriq",
+    "action": {
+      "type": "resize_cluster",
+      "target_id": "clusteriq",
+      "params": {
+        "node_type_id": "Standard_DS3_v2",
+        "driver_node_type_id": "Standard_DS3_v2",
+        "num_workers": 2
+      }
+    },
+    "id": "rec_9fb72caa768a457782056724c91d9674",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:55:46.910076+05:30",
+    "updated_at": "2026-02-10T21:55:46.910076+05:30"
+  },
+  {
+    "type": "PERFORMANCE",
+    "severity": "MEDIUM",
+    "title": "Optimize job scheduling",
+    "description": "Job execution shows frequent retries",
+    "estimated_savings": "$300.00",
+    "action": null,
+    "id": "rec_91ef3c44f900424793f48edc987a079e",
+    "status": "PENDING",
+    "created_at": "2026-02-10T21:55:46.910076+05:30",
+    "updated_at": "2026-02-10T21:55:46.910076+05:30"
   }
 ]

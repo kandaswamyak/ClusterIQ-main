@@ -26,7 +26,7 @@ function Approvals() {
   const [actionError, setActionError] = useState(null)
 
   // Fetch all recommendations to calculate counts
-  const { data: allData } = useQuery({
+  const { data: allData, refetch: refetchAll } = useQuery({
     queryKey: ['approvals-all'],
     queryFn: () => fetchApprovals(''),
     refetchInterval: 30000,
@@ -75,7 +75,7 @@ function Approvals() {
     setActionError(null)
     try {
       await analyzeDeltaTables({})
-      await refetch()
+      await Promise.all([refetch(), refetchAll()])
     } catch (err) {
       setActionError(err.response?.data?.error || err.message || 'Analysis failed')
     } finally {
@@ -89,7 +89,7 @@ function Approvals() {
       if (action === 'approve') await approveRecommendation(recId)
       if (action === 'reject') await rejectRecommendation(recId)
       if (action === 'apply') await applyRecommendation(recId)
-      await refetch()
+      await Promise.all([refetch(), refetchAll()])
     } catch (err) {
       setActionError(err.response?.data?.error || err.message || 'Action failed')
     }
@@ -289,7 +289,15 @@ function Approvals() {
                   <p className="text-sm text-gray-600 mt-2">{rec.description}</p>
                   <div className="text-xs text-gray-500 mt-2">
                     Resource: {rec.resource_type || 'N/A'} {rec.resource_id ? `• ${rec.resource_id}` : ''} 
-                    {(rec.created_at || rec.timestamp) && `• ${new Date(rec.created_at || rec.timestamp).toLocaleString()}`}
+                    {(rec.created_at || rec.timestamp) && `• ${new Date(rec.created_at || rec.timestamp).toLocaleString('en-IN', { 
+                      timeZone: 'Asia/Kolkata',
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true
+                    })}`}
                   </div>
                   {savingsDisplay !== null && (
                     <div className="text-xs text-green-600 mt-1 font-medium">

@@ -94,10 +94,10 @@ function Recommendations() {
   }
 
   const isActiveRecommendation = (rec) => {
-    const status = (rec?.status || '').toLowerCase()
+    const status = (rec?.status || '').toUpperCase()
     if (!status) return true
-    // Show pending and failed items (failed can be retried)
-    return status === 'pending' || status === 'failed'
+    // Show pending, failed, and approved items (approved can be applied)
+    return status === 'PENDING' || status === 'FAILED' || status === 'APPROVED'
   }
 
   // Get unique recommendations by deduplicating based on resource_id + type
@@ -130,6 +130,15 @@ function Recommendations() {
 
   // Sort recommendations by date (newest first) and prioritize execution errors
   const sortedRecommendations = [...recommendations].sort((a, b) => {
+    // Highest priority: clusteriq auto-termination recommendations
+    const aIsClusteriqAutoTerm = (a.resource_name || '').toLowerCase().includes('clusteriq') && 
+                                  (a.title || '').toLowerCase().includes('auto-termination')
+    const bIsClusteriqAutoTerm = (b.resource_name || '').toLowerCase().includes('clusteriq') && 
+                                  (b.title || '').toLowerCase().includes('auto-termination')
+    
+    if (aIsClusteriqAutoTerm && !bIsClusteriqAutoTerm) return -1
+    if (!aIsClusteriqAutoTerm && bIsClusteriqAutoTerm) return 1
+    
     // Prioritize execution errors (HIGH severity)
     const aIsExecError = a.type === 'execution_error' || (a.severity === 'high' && a.title?.includes('execution error'))
     const bIsExecError = b.type === 'execution_error' || (b.severity === 'high' && b.title?.includes('execution error'))
@@ -160,7 +169,6 @@ function Recommendations() {
           [recId]: { status: 'approved', message: 'Recommendation approved', error: null }
         }))
       } else if (action === 'apply') {
-        await approveRecommendation(recId)
         await applyRecommendation(recId)
         setActionState((prev) => ({
           ...prev,
@@ -192,7 +200,7 @@ function Recommendations() {
         return acc
       }, {})
     ).sort((a, b) => {
-      const orderMap = { execution_error: 0, frequent_retries: 1, cost_leak: 2, idle_cluster: 3, optimization: 4, other: 5 }
+      const orderMap = { execution_error: 0, frequent_retries: 1, cost_optimization: 2, cost_leak: 3, idle_cluster: 4, optimization: 5, other: 6 }
       return (orderMap[a[0]] || 99) - (orderMap[b[0]] || 99)
     })
   )
@@ -441,10 +449,16 @@ function Recommendations() {
             {/* Cluster Optimization Section */}
             {(() => {
               // Filter cluster recommendations, excluding auto-healable types (shown in Self Healing)
-              const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error']
-              const clusterRecs = sortedRecommendations.filter(rec => 
-                rec.resource_type === 'cluster' && !autoHealableTypes.includes(rec.type)
-              )
+              const autoHealableTypes = ['stuck_pending_job', 'execution_error']
+              const clusterRecs = sortedRecommendations.filter(rec => {
+                const isClusterResource = (rec.resource_type || '').toLowerCase() === 'cluster' || 
+                                         (rec.resource_name || '').toLowerCase().includes('cluster')
+                const recType = (rec.type || '').toLowerCase()
+                const isClusterOptimization = recType === 'cost_optimization' || 
+                                              recType === 'idle_cluster' ||
+                                              (rec.title || '').toLowerCase().includes('auto-termination')
+                return isClusterResource && (isClusterOptimization || !autoHealableTypes.includes(recType))
+              })
               if (clusterRecs.length === 0) return null
               
               const isExpanded = expandedResourceSections.clusters

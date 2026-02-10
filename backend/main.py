@@ -1805,8 +1805,12 @@ def apply_recommendation(rec_id):
         if not rec:
             return jsonify({"success": False, "error": "Recommendation not found"}), 404
         
-        if rec.get("status") != "APPROVED":
-            return jsonify({"success": False, "error": f"Recommendation is not approved (current status: {rec.get('status')})"}), 400
+        # Auto-approve if not already approved
+        current_status = rec.get("status", "PENDING")
+        if current_status not in ["APPROVED", "APPLIED"]:
+            # Approve the recommendation first
+            update_status(rec_id, "APPROVED", note="Auto-approved for application")
+            rec = get_recommendation(rec_id)
         
         action = rec.get("action", {})
         # Handle case where action is a string or not a dict
@@ -1820,7 +1824,50 @@ def apply_recommendation(rec_id):
         # Handle idle_cluster and informational recommendations that don't require action
         rec_type = rec.get("type", "")
         if rec_type in ["idle_cluster", "optimization"]:
-            # These are informational - mark as applied without taking action
+            # Check if this is a job-created cluster
+            cluster_id = action.get("cluster_id") or rec.get("resource_id")
+            if cluster_id:
+                try:
+                    # Get cluster details to check if it's a job cluster
+                    clusters = databricks_client.get_all_clusters()
+                    cluster_info = next((c for c in clusters if c.get("cluster_id") == cluster_id), None)
+                    
+                    if cluster_info:
+                        cluster_name = cluster_info.get("cluster_name", "")
+                        cluster_source = cluster_info.get("cluster_source", "")
+                        
+                        # If it's a job cluster, extract job info and cancel the run
+                        if "job-" in cluster_name.lower() or cluster_source == "JOB":
+                            import re
+                            # Pattern: job-{job_id}-run-{run_id}-{suffix}
+                            match = re.search(r'job-(\d+)-run-(\d+)', cluster_name)
+                            if match:
+                                job_id = match.group(1)
+                                run_id = int(match.group(2))
+                                
+                                logger.info(f"Detected job cluster {cluster_id}. Cancelling job run {run_id}")
+                                cancel_result = databricks_client.cancel_job_run(run_id)
+                                
+                                if cancel_result.get("status") == "success":
+                                    applied_note = f"Cancelled job run {run_id} for idle job cluster {cluster_name}"
+                                    updated = update_status(rec_id, "APPLIED", note=applied_note)
+                                    return jsonify({
+                                        "success": True,
+                                        "message": f"Successfully cancelled job run {run_id}",
+                                        "recommendation": updated
+                                    }), 200
+                                else:
+                                    error_msg = cancel_result.get("message", "Unknown error")
+                                    updated = update_status(rec_id, "FAILED", note=f"Failed to cancel job run: {error_msg}")
+                                    return jsonify({
+                                        "success": False,
+                                        "error": f"Failed to cancel job run: {error_msg}",
+                                        "recommendation": updated
+                                    }), 400
+                except Exception as e:
+                    logger.warning(f"Error checking job cluster status: {str(e)}")
+            
+            # For non-job idle clusters - mark as applied without action
             updated = update_status(rec_id, "APPLIED", note="Recommendation noted and monitored")
             return jsonify({
                 "success": True,
@@ -2546,6 +2593,12 @@ def get_health_status():
                 continue
             cluster_id = issue_info.get("cluster_id")
             cluster_name = issue_info.get("cluster_name") or "Unknown"
+            
+            # Skip job clusters - they auto-terminate when the job completes
+            if "job-" in cluster_name.lower():
+                logger.info(f"Skipping idle recommendation for job cluster: {cluster_name}")
+                continue
+            
             idle_recommendations.append({
                 "id": f"rec_idle_{cluster_id}",
                 "type": "idle_cluster",
