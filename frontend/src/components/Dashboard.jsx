@@ -103,7 +103,56 @@ function Dashboard() {
     return 55
   }
 
-  const recommendationsList = recommendations?.recommendations || []
+  const successfullyHealedResourceIds = new Set(
+    (healingHistory?.history || [])
+      .filter((action) => action.status === 'success')
+      .map((action) => String(action.resource_id))
+  )
+
+  const isHealedRecommendation = (rec) => {
+    if (!rec) return false
+    const candidates = []
+    if (rec.resource_id !== undefined && rec.resource_id !== null) {
+      candidates.push(String(rec.resource_id))
+    }
+    if (rec.resource_name) candidates.push(String(rec.resource_name))
+    return candidates.some((id) => successfullyHealedResourceIds.has(id))
+  }
+
+  const isActiveRecommendation = (rec) => {
+    const status = (rec?.status || '').toLowerCase()
+    if (!status) return true
+    // Show pending and failed items (failed can be retried)
+    return status === 'pending' || status === 'failed'
+  }
+
+  // Get unique recommendations by deduplicating based on resource_id + type
+  const getUniqueRecommendations = (recs) => {
+    const uniqueMap = new Map()
+    for (const rec of recs) {
+      const resourceId = rec.resource_id || rec.resource_name || 'unknown'
+      const type = rec.type || 'other'
+      const key = `${resourceId}_${type}`
+      
+      // Keep the most recent recommendation for each resource+type combination
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, rec)
+      } else {
+        const existing = uniqueMap.get(key)
+        const existingDate = new Date(existing.created_at || existing.updated_at || 0)
+        const newDate = new Date(rec.created_at || rec.updated_at || 0)
+        if (newDate > existingDate) {
+          uniqueMap.set(key, rec)
+        }
+      }
+    }
+    return Array.from(uniqueMap.values())
+  }
+
+  const allRecommendations = (recommendations?.recommendations || []).filter(
+    (rec) => isActiveRecommendation(rec) && !isHealedRecommendation(rec)
+  )
+  const recommendationsList = getUniqueRecommendations(allRecommendations)
   const estimatedSavings = recommendationsList.reduce((sum, r) => sum + parseMonthlySavings(r), 0)
   const confidenceValues = recommendationsList
     .map((rec) => getConfidenceWithFallback(rec))
@@ -200,8 +249,7 @@ function Dashboard() {
               <TrendingDown className="h-5 w-5 mr-2 text-purple-600" />
               📊 Total Recommendations
             </h2>
-            <div className="text-4xl font-bold text-purple-600">{recommendations.recommendations?.length || 0}</div>
-            <p className="text-gray-700 mt-2 text-sm">Current recommendations: {recommendations.recommendations?.length || 0}</p>
+            <div className="text-4xl font-bold text-purple-600">{recommendationsList.length}</div>
             <p className="text-gray-600 mt-2 text-sm">✨ Click to view all AI-powered optimization suggestions with savings in $</p>
           </div>
         </Link>

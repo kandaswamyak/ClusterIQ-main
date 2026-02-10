@@ -1,14 +1,16 @@
 {
   "enabled": true,
   "features": {
-    "auto_restart_failed_clusters": false,
+    "auto_restart_failed_clusters": true,
     "auto_terminate_idle_clusters": true,
+    "auto_cancel_long_running_jobs": true,
     "auto_scale_adjustments": false,
     "auto_apply_optimizations": true,
-    "proactive_health_checks": false
+    "proactive_health_checks": true
   },
   "thresholds": {
     "idle_timeout_minutes": 10,
+    "long_running_job_minutes": 30,
     "failed_restart_window_minutes": 120,
     "max_restart_attempts": 3,
     "cpu_utilization_low": 10,

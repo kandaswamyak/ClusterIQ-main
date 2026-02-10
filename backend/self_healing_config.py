@@ -28,12 +28,14 @@ class SelfHealingConfig:
             "features": {
                 "auto_restart_failed_clusters": True,
                 "auto_terminate_idle_clusters": True,
+                "auto_cancel_long_running_jobs": False,
                 "auto_scale_adjustments": False,
                 "auto_apply_optimizations": False,
                 "proactive_health_checks": True
             },
             "thresholds": {
                 "idle_timeout_minutes": 30,
+                "long_running_job_minutes": 30,
                 "failed_restart_window_minutes": 120,
                 "max_restart_attempts": 3,
                 "cpu_utilization_low": 10,

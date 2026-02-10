@@ -304,13 +304,8 @@ def generate_execution_error_recommendations(jobs):
                             result_state = state.get("result_state", "")
                             state_message = state.get("state_message", "")
                             
-                            # Check for execution errors
-                            if result_state in ["FAILED", "TIMEDOUT", "CANCELED"] and (
-                                "RunExecutionError" in state_message or 
-                                "execution error" in state_message.lower() or
-                                "cluster.*failed" in state_message.lower() or
-                                "ClusterNotFound" in state_message
-                            ):
+                            # Check for execution errors - only failed or timed out runs
+                            if result_state in ["FAILED", "TIMEDOUT"]:
                                 run_id = run.get("run_id")
                                 cluster_instance = run.get("cluster_instance", {})
                                 cluster_id = cluster_instance.get("cluster_id", "unknown")
@@ -318,32 +313,25 @@ def generate_execution_error_recommendations(jobs):
                                 # Create recommendation to fix execution error
                                 rec_id = f"rec_exec_error_{job_id}_{run_id}"
                                 
-                                # Determine the root cause and action
-                                action_type = "restart_cluster"
-                                action_description = "Restart the cluster to fix execution errors"
-                                
-                                if "ClusterNotFound" in state_message:
-                                    action_type = "recreate_cluster"
-                                    action_description = "Cluster not found - needs recreation"
-                                elif "ClusterTerminated" in state_message:
-                                    action_type = "restart_cluster"
-                                    action_description = "Cluster terminated unexpectedly - restart needed"
+                                # Restart the failed job by submitting a new run
+                                action_type = "restart_job_run"
+                                action_description = "Rerun the failed job to recover from execution error"
                                 
                                 recommendations.append({
                                     "id": rec_id,
                                     "type": "execution_error",
                                     "severity": "high",
-                                    "title": f"Fix execution error: {job_name}",
-                                    "description": f"Job '{job_name}' failed with RunExecutionError: {state_message[:200]}. Cluster: {cluster_id}",
+                                    "title": f"Restart failed job: {job_name}",
+                                    "description": f"Job '{job_name}' failed with execution error: {state_message[:200]}. Cluster: {cluster_id}. Rerunning job for recovery.",
                                     "resource_type": "job",
                                     "resource_id": job_id,
                                     "resource_name": job_name,
                                     "estimated_savings": "Prevents job failures",
-                                    "risk": "Low - Automated restart",
+                                    "risk": "Low - Job rerun",
                                     "confidence_score": 0.85,
                                     "action": {
                                         "type": action_type,
-                                        "target_id": cluster_id,
+                                        "target_id": job_id,
                                         "params": {
                                             "job_id": job_id,
                                             "run_id": run_id,
@@ -578,6 +566,111 @@ def generate_frequent_retry_recommendations(jobs):
                 
     except Exception as e:
         logger.error(f"Error generating frequent retry recommendations: {str(e)}")
+    
+    return recommendations
+
+
+def generate_long_running_job_recommendations(jobs):
+    """Generate recommendations for jobs running longer than threshold.
+    
+    Args:
+        jobs: List of job dictionaries
+        
+    Returns:
+        List of recommendation dictionaries
+    """
+    recommendations = []
+    LONG_RUNNING_THRESHOLD_MINUTES = 30  # Alert if job runs longer than 30 minutes
+    
+    try:
+        current_time_ms = int(time.time() * 1000)
+        
+        for job in jobs:
+            job_id = job.get("job_id")
+            job_name = job.get("settings", {}).get("name") or job.get("job_name", "Unknown")
+            
+            # Check for long running jobs
+            try:
+                if databricks_client:
+                    # Get active/recent runs for this job
+                    runs_response = databricks_client.get_job_runs(job_id, limit=10)
+                    if isinstance(runs_response, dict):
+                        if runs_response.get("status") != "success":
+                            continue
+                        runs = runs_response.get("runs", [])
+                    else:
+                        runs = runs_response or []
+                    
+                    if not runs:
+                        continue
+                    
+                    # Look for RUNNING jobs that exceed threshold
+                    for run in runs:
+                        state = run.get("state", {})
+                        life_cycle_state = state.get("life_cycle_state", "")
+                        
+                        # Check if job is currently RUNNING
+                        if life_cycle_state == "RUNNING":
+                            run_id = run.get("run_id")
+                            start_time = run.get("start_time")
+                            
+                            if not start_time:
+                                continue
+                            
+                            # Calculate how long it's been running
+                            running_duration_ms = current_time_ms - start_time
+                            running_duration_minutes = running_duration_ms / 1000 / 60
+                            
+                            # If running for more than threshold, create recommendation
+                            if running_duration_minutes > LONG_RUNNING_THRESHOLD_MINUTES:
+                                cluster_instance = run.get("cluster_instance", {})
+                                cluster_id = cluster_instance.get("cluster_id", "unknown")
+                                
+                                rec_id = f"rec_long_running_{job_id}_{run_id}"
+                                
+                                recommendations.append({
+                                    "id": rec_id,
+                                    "type": "long_running_job",
+                                    "severity": "medium",
+                                    "title": f"Long running job: {job_name}",
+                                    "description": f"Job '{job_name}' (Run {run_id}) has been running for {running_duration_minutes:.1f} minutes, exceeding the {LONG_RUNNING_THRESHOLD_MINUTES}-minute threshold. This may indicate performance issues or inefficient code.",
+                                    "resource_type": "job",
+                                    "resource_id": job_id,
+                                    "resource_name": job_name,
+                                    "estimated_savings": "Prevents excessive compute costs",
+                                    "risk": "Medium - Cancel if stuck",
+                                    "confidence_score": 0.75,
+                                    "action": {
+                                        "type": "cancel_job_run",
+                                        "target_id": run_id,
+                                        "params": {
+                                            "job_id": job_id,
+                                            "run_id": run_id,
+                                            "reason": f"Running longer than {LONG_RUNNING_THRESHOLD_MINUTES} minutes"
+                                        }
+                                    },
+                                    "details": {
+                                        "run_id": run_id,
+                                        "job_id": job_id,
+                                        "cluster_id": cluster_id,
+                                        "running_duration_minutes": running_duration_minutes,
+                                        "start_time": start_time,
+                                        "threshold_minutes": LONG_RUNNING_THRESHOLD_MINUTES,
+                                        "state": life_cycle_state
+                                    },
+                                    "created_at": get_ist_time().isoformat(),
+                                    "timestamp": get_ist_time().isoformat()
+                                })
+                                
+                                logger.info(f"Created long running recommendation for job {job_name} (run {run_id}) - running for {running_duration_minutes:.1f} minutes")
+                                break  # Only one recommendation per job
+                                
+            except Exception as job_error:
+                logger.debug(f"Could not check running time for job {job_id}: {job_error}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error generating long running job recommendations: {str(e)}")
     
     return recommendations
 
@@ -819,6 +912,18 @@ def analyze_jobs_and_clusters():
         except Exception as pending_error:
             logger.warning(f"Error generating stuck PENDING job recommendations: {pending_error}")
         
+        # Add long running job recommendations
+        try:
+            long_running_recs = generate_long_running_job_recommendations(jobs)
+            if long_running_recs:
+                existing_ids = {rec.get("id") for rec in recommendations if rec.get("id")}
+                for rec in long_running_recs:
+                    if rec.get("id") not in existing_ids:
+                        recommendations.append(rec)
+                logger.info(f"Added {len(long_running_recs)} long running job recommendations")
+        except Exception as long_running_error:
+            logger.warning(f"Error generating long running job recommendations: {long_running_error}")
+        
         # Try optional AI analysis (with tight timeout, non-blocking)
         ai_agent_instance = ensure_ai_agent()
         if ai_agent_instance and recommendations:  # Only do AI if we have base recommendations
@@ -985,8 +1090,22 @@ def get_recommendations():
 
 @app.route("/api/recommendations/real-time", methods=["GET"])
 def get_recommendations_realtime():
-    """Get real-time recommendations (returns cached analysis if available)."""
-    # First check if we have cached analysis
+    """Get real-time recommendations (returns ALL recommendations from approval store)."""
+    # Always return recommendations from approval store for real-time data
+    stored_recs = list_recommendations()
+    logger.info(f"DEBUG: list_recommendations() returned {len(stored_recs)} items")
+    
+    # If we have stored recommendations, return them
+    if stored_recs:
+        logger.info(f"DEBUG: Returning {len(stored_recs)} stored recommendations")
+        return jsonify({
+            "recommendations": stored_recs,
+            "real_time": True,
+            "has_analysis": True,
+            "timestamp": get_ist_time().isoformat()
+        })
+    
+    # If no stored recommendations but we have cached analysis, use cache
     if analysis_cache and analysis_cache.get("recommendations"):
         return jsonify({
             **analysis_cache,
@@ -1678,6 +1797,9 @@ def apply_recommendation(rec_id):
     try:
         if not databricks_client:
             return jsonify({"success": False, "error": "Databricks client not configured"}), 503
+
+        from self_healing_config import get_history
+        history = get_history()
         
         rec = get_recommendation(rec_id)
         if not rec:
@@ -1981,6 +2103,55 @@ def apply_recommendation(rec_id):
             else:
                 result = cancel_result
                 logger.error(f"Failed to cancel job run {run_id}: {cancel_result.get('error')}")
+        
+        elif action_type == "restart_job_run":
+            # Restart a failed job by submitting a new run
+            job_id = params.get("job_id") or target_id
+            failed_run_id = params.get("run_id")
+            error_message = params.get("error_message", "Execution error")
+            job_name = rec.get("resource_name") or rec.get("resource_id") or str(job_id)
+            
+            logger.info(f"Restarting failed job {job_id} (failed run: {failed_run_id})")
+            
+            submit_result = databricks_client.submit_job_run(job_id)
+            if submit_result.get("status") == "success":
+                new_run_id = submit_result.get("run_id")
+                result = {
+                    "status": "success",
+                    "message": f"Successfully submitted new run for job {job_id}",
+                    "new_run_id": new_run_id,
+                    "previous_failed_run_id": failed_run_id
+                }
+                applied_note = f"Job rerun submitted (new run ID: {new_run_id}). Previous failed run: {failed_run_id}. Error: {error_message[:100]}"
+                history.add_action(
+                    action_type="restart_failed_job",
+                    resource_id=str(job_id),
+                    resource_type="job",
+                    status="success",
+                    details={
+                        "job_name": job_name,
+                        "job_id": job_id,
+                        "new_run_id": new_run_id,
+                        "failed_run_id": failed_run_id,
+                        "error_message": error_message[:200]
+                    }
+                )
+                logger.info(f"Successfully submitted new run {new_run_id} for job {job_id}")
+            else:
+                result = submit_result
+                history.add_action(
+                    action_type="restart_failed_job",
+                    resource_id=str(job_id),
+                    resource_type="job",
+                    status="failed",
+                    details={
+                        "job_name": job_name,
+                        "job_id": job_id,
+                        "failed_run_id": failed_run_id,
+                        "error": submit_result.get("error", "Unknown error")
+                    }
+                )
+                logger.error(f"Failed to submit new run for job {job_id}: {submit_result.get('error')}")
         
         if result.get("status") == "success":
             savings_label = format_estimated_savings(rec)
@@ -2647,6 +2818,11 @@ def run_self_healing():
                     clusters_to_process.append((cluster_id, cluster_name))
             
             if config.is_feature_enabled("auto_terminate_idle_clusters"):
+                desired_autotermination_minutes = (
+                    config.get_rule("auto_terminate").get("idle_minutes")
+                    or config.get_threshold("idle_timeout_minutes")
+                    or 15
+                )
                 for cluster_id, cluster_name in clusters_to_process:
                     try:
                         # Get full cluster info to check autotermination status
@@ -2657,11 +2833,17 @@ def run_self_healing():
                             
                             # If autotermination is not configured or is 0, enable it
                             if not autotermination_minutes or autotermination_minutes == 0:
-                                logger.info(f"Enabling autotermination for cluster {cluster_name}")
+                                logger.info(
+                                    f"Enabling autotermination for cluster {cluster_name} "
+                                    f"({desired_autotermination_minutes} minutes)"
+                                )
                                 
                                 # Check if dry-run mode
                                 if config.is_dry_run():
-                                    logger.info(f"[DRY-RUN] Would enable 15-minute autotermination for {cluster_name}")
+                                    logger.info(
+                                        f"[DRY-RUN] Would enable {desired_autotermination_minutes}-minute "
+                                        f"autotermination for {cluster_name}"
+                                    )
                                     autotermination_enabled_count += 1
                                     history.add_action(
                                         action_type="enable_autotermination",
@@ -2670,7 +2852,7 @@ def run_self_healing():
                                         status="success",
                                         details={
                                             "cluster_name": cluster_name,
-                                            "autotermination_minutes": 15,
+                                            "autotermination_minutes": desired_autotermination_minutes,
                                             "dry_run": True
                                         }
                                     )
@@ -2679,13 +2861,16 @@ def run_self_healing():
                                         "cluster_id": cluster_id,
                                         "cluster_name": cluster_name,
                                         "status": "dry_run",
-                                        "message": f"[DRY-RUN] Would enable 15-minute autotermination for {cluster_name}"
+                                        "message": (
+                                            f"[DRY-RUN] Would enable {desired_autotermination_minutes}-minute "
+                                            f"autotermination for {cluster_name}"
+                                        )
                                     })
                                 else:
                                     # Actually enable autotermination
                                     result = databricks_client.update_cluster_config(
                                         cluster_id=cluster_id,
-                                        autotermination_minutes=15
+                                        autotermination_minutes=desired_autotermination_minutes
                                     )
                                     
                                     if result.get("status") == "success":
@@ -2698,7 +2883,7 @@ def run_self_healing():
                                             status="success",
                                             details={
                                                 "cluster_name": cluster_name,
-                                                "autotermination_minutes": 15,
+                                                "autotermination_minutes": desired_autotermination_minutes,
                                                 "dry_run": False
                                             }
                                         )
@@ -2707,7 +2892,10 @@ def run_self_healing():
                                             "cluster_id": cluster_id,
                                             "cluster_name": cluster_name,
                                             "status": "success",
-                                            "message": f"Successfully enabled 15-minute autotermination for {cluster_name}"
+                                            "message": (
+                                                f"Successfully enabled {desired_autotermination_minutes}-minute "
+                                                f"autotermination for {cluster_name}"
+                                            )
                                         })
                                         logger.info(f"Successfully enabled autotermination for {cluster_name}")
                                         
@@ -2892,6 +3080,285 @@ def run_self_healing():
             
             except Exception as jobs_error:
                 logger.error(f"Error checking for stuck pending jobs: {str(jobs_error)}")
+
+            # Process long running jobs - automatically cancel them
+            long_running_jobs_cancelled = 0
+            long_running_threshold_minutes = config.get_threshold("long_running_job_minutes") or 30
+            if config.is_feature_enabled("auto_cancel_long_running_jobs"):
+                try:
+                    jobs = databricks_client.get_all_jobs()
+                    current_time_ms = int(time.time() * 1000)
+
+                    for job in jobs:
+                        job_id = job.get("job_id")
+                        job_name = job.get("settings", {}).get("name") or job.get("job_name", "Unknown")
+
+                        try:
+                            runs_response = databricks_client.get_job_runs(job_id, limit=10)
+                            if isinstance(runs_response, dict):
+                                if runs_response.get("status") != "success":
+                                    continue
+                                runs = runs_response.get("runs", [])
+                            else:
+                                runs = runs_response or []
+
+                            if not runs:
+                                continue
+
+                            for run in runs:
+                                state = run.get("state", {})
+                                life_cycle_state = state.get("life_cycle_state", "")
+
+                                if life_cycle_state == "RUNNING":
+                                    run_id = run.get("run_id")
+                                    start_time = run.get("start_time")
+
+                                    if not start_time:
+                                        continue
+
+                                    running_duration_ms = current_time_ms - start_time
+                                    running_duration_minutes = running_duration_ms / 1000 / 60
+
+                                    if running_duration_minutes > long_running_threshold_minutes:
+                                        logger.info(
+                                            f"Cancelling long running job run {run_id} for job {job_name} "
+                                            f"(running for {running_duration_minutes:.1f} minutes)"
+                                        )
+
+                                        if config.is_dry_run():
+                                            logger.info(f"[DRY-RUN] Would cancel long running job run {run_id}")
+                                            long_running_jobs_cancelled += 1
+                                            history.add_action(
+                                                action_type="cancel_long_running_job",
+                                                resource_id=str(run_id),
+                                                resource_type="job",
+                                                status="success",
+                                                details={
+                                                    "job_name": job_name,
+                                                    "job_id": job_id,
+                                                    "run_id": run_id,
+                                                    "running_minutes": running_duration_minutes,
+                                                    "threshold_minutes": long_running_threshold_minutes,
+                                                    "dry_run": True
+                                                }
+                                            )
+                                            results.append({
+                                                "action": "cancel_long_running_job",
+                                                "job_id": job_id,
+                                                "job_name": job_name,
+                                                "run_id": run_id,
+                                                "status": "dry_run",
+                                                "message": (
+                                                    f"[DRY-RUN] Would cancel run {run_id} running for "
+                                                    f"{running_duration_minutes:.1f} minutes"
+                                                )
+                                            })
+                                        else:
+                                            cancel_result = databricks_client.cancel_job_run(run_id)
+
+                                            if cancel_result.get("status") == "success":
+                                                actions_taken += 1
+                                                long_running_jobs_cancelled += 1
+                                                history.add_action(
+                                                    action_type="cancel_long_running_job",
+                                                    resource_id=str(run_id),
+                                                    resource_type="job",
+                                                    status="success",
+                                                    details={
+                                                        "job_name": job_name,
+                                                        "job_id": job_id,
+                                                        "run_id": run_id,
+                                                        "running_minutes": running_duration_minutes,
+                                                        "threshold_minutes": long_running_threshold_minutes,
+                                                        "dry_run": False
+                                                    }
+                                                )
+                                                results.append({
+                                                    "action": "cancel_long_running_job",
+                                                    "job_id": job_id,
+                                                    "job_name": job_name,
+                                                    "run_id": run_id,
+                                                    "status": "success",
+                                                    "message": (
+                                                        f"Cancelled run {run_id} running for "
+                                                        f"{running_duration_minutes:.1f} minutes"
+                                                    )
+                                                })
+                                                logger.info(f"Successfully cancelled long running job run {run_id}")
+
+                                                all_recs = list_recommendations()
+                                                for rec in all_recs:
+                                                    rec_type = rec.get("type")
+                                                    rec_details = rec.get("details", {}) or {}
+                                                    rec_run_id = rec_details.get("run_id")
+                                                    rec_params = (rec.get("action") or {}).get("params", {})
+                                                    rec_action_run_id = rec_params.get("run_id")
+                                                    if (
+                                                        rec_type == "long_running_job"
+                                                        and rec.get("status") == "PENDING"
+                                                        and (rec_run_id == run_id or rec_action_run_id == run_id)
+                                                    ):
+                                                        update_status(
+                                                            rec.get("id"),
+                                                            "APPLIED",
+                                                            note=(
+                                                                f"Job run {run_id} was cancelled after "
+                                                                f"{running_duration_minutes:.1f} minutes"
+                                                            )
+                                                        )
+                                                        logger.info(f"Marked recommendation {rec.get('id')} as APPLIED")
+                                            else:
+                                                history.add_action(
+                                                    action_type="cancel_long_running_job",
+                                                    resource_id=str(run_id),
+                                                    resource_type="job",
+                                                    status="failed",
+                                                    details={
+                                                        "job_name": job_name,
+                                                        "job_id": job_id,
+                                                        "run_id": run_id,
+                                                        "error": cancel_result.get("error", "Unknown error"),
+                                                        "dry_run": False
+                                                    }
+                                                )
+                                                results.append({
+                                                    "action": "cancel_long_running_job",
+                                                    "job_id": job_id,
+                                                    "job_name": job_name,
+                                                    "run_id": run_id,
+                                                    "status": "failed",
+                                                    "message": cancel_result.get("error", "Failed to cancel job run")
+                                                })
+
+                                        break
+
+                        except Exception as job_error:
+                            logger.debug(f"Could not check job {job_id} for long running runs: {job_error}")
+                            continue
+
+                except Exception as jobs_error:
+                    logger.error(f"Error checking for long running jobs: {str(jobs_error)}")
+            else:
+                diagnostics.append({
+                    "issue": "Long running job cancellation is disabled",
+                    "action_available": "Enable auto_cancel_long_running_jobs in config"
+                })
+            
+            # Process execution errors - automatically restart failed jobs
+            failed_jobs_restarted = 0
+            try:
+                jobs = databricks_client.get_all_jobs()
+                execution_error_recs = generate_execution_error_recommendations(jobs)
+                if execution_error_recs:
+                    add_recommendations(execution_error_recs)
+                
+                for rec in execution_error_recs:
+                    try:
+                        action = rec.get("action", {})
+                        if not isinstance(action, dict):
+                            continue
+                        
+                        action_type = action.get("type")
+                        job_id = action.get("params", {}).get("job_id") or rec.get("resource_id")
+                        failed_run_id = action.get("params", {}).get("run_id")
+                        error_message = action.get("params", {}).get("error_message", "Execution error")
+                        
+                        if action_type != "restart_job_run" or not job_id:
+                            continue
+                        
+                        job_name = rec.get("resource_name", f"Job {job_id}")
+                        
+                        logger.info(f"Restarting failed job {job_name} (job_id: {job_id}, failed_run: {failed_run_id})")
+                        
+                        if config.is_dry_run():
+                            logger.info(f"[DRY-RUN] Would restart job {job_name}")
+                            failed_jobs_restarted += 1
+                            history.add_action(
+                                action_type="restart_failed_job",
+                                resource_id=str(job_id),
+                                resource_type="job",
+                                status="success",
+                                details={
+                                    "job_name": job_name,
+                                    "job_id": job_id,
+                                    "failed_run_id": failed_run_id,
+                                    "error_message": error_message[:200],
+                                    "dry_run": True
+                                }
+                            )
+                            results.append({
+                                "action": "restart_failed_job",
+                                "job_id": job_id,
+                                "job_name": job_name,
+                                "failed_run_id": failed_run_id,
+                                "status": "dry_run",
+                                "message": f"[DRY-RUN] Would restart job {job_name} (failed run: {failed_run_id})"
+                            })
+                            update_status(rec.get("id"), "APPLIED", note="[DRY-RUN] Job would have been restarted")
+                        else:
+                            # Actually submit new run
+                            submit_result = databricks_client.submit_job_run(job_id)
+                            
+                            if submit_result.get("status") == "success":
+                                actions_taken += 1
+                                failed_jobs_restarted += 1
+                                new_run_id = submit_result.get("run_id")
+                                
+                                history.add_action(
+                                    action_type="restart_failed_job",
+                                    resource_id=str(job_id),
+                                    resource_type="job",
+                                    status="success",
+                                    details={
+                                        "job_name": job_name,
+                                        "job_id": job_id,
+                                        "new_run_id": new_run_id,
+                                        "failed_run_id": failed_run_id,
+                                        "error_message": error_message[:200],
+                                        "dry_run": False
+                                    }
+                                )
+                                results.append({
+                                    "action": "restart_failed_job",
+                                    "job_id": job_id,
+                                    "job_name": job_name,
+                                    "new_run_id": new_run_id,
+                                    "failed_run_id": failed_run_id,
+                                    "status": "success",
+                                    "message": f"Restarted job {job_name} (new run: {new_run_id}, failed run: {failed_run_id})"
+                                })
+                                logger.info(f"Successfully restarted failed job {job_name}, new run ID: {new_run_id}")
+                                
+                                # Mark recommendation as APPLIED
+                                update_status(rec.get("id"), "APPLIED", note=f"Job rerun submitted (new run ID: {new_run_id})")
+                            else:
+                                history.add_action(
+                                    action_type="restart_failed_job",
+                                    resource_id=str(job_id),
+                                    resource_type="job",
+                                    status="failed",
+                                    details={
+                                        "job_name": job_name,
+                                        "job_id": job_id,
+                                        "failed_run_id": failed_run_id,
+                                        "error": submit_result.get("error", "Unknown error"),
+                                        "dry_run": False
+                                    }
+                                )
+                                results.append({
+                                    "action": "restart_failed_job",
+                                    "job_id": job_id,
+                                    "job_name": job_name,
+                                    "status": "failed",
+                                    "message": submit_result.get("error", "Failed to restart job")
+                                })
+                                
+                    except Exception as job_error:
+                        logger.debug(f"Could not restart job for execution error: {job_error}")
+                        continue
+                        
+            except Exception as err:
+                logger.error(f"Error processing execution error recommendations: {str(err)}")
             
             # Summary
             summary = {
@@ -2900,11 +3367,15 @@ def run_self_healing():
                 "failed_clusters": len(failed_clusters),
                 "autotermination_enabled": autotermination_enabled_count,
                 "stuck_jobs_cancelled": stuck_jobs_cancelled,
+                "long_running_jobs_cancelled": long_running_jobs_cancelled,
+                "failed_jobs_restarted": failed_jobs_restarted,
                 "actions_taken": actions_taken,
                 "actions_available": {
                     "auto_restart": len(failed_clusters) if config.is_feature_enabled("auto_restart_failed_clusters") else 0,
                     "auto_terminate": autotermination_enabled_count if config.is_feature_enabled("auto_terminate_idle_clusters") else 0,
-                    "cancel_stuck_jobs": stuck_jobs_cancelled
+                    "cancel_stuck_jobs": stuck_jobs_cancelled,
+                    "cancel_long_running_jobs": long_running_jobs_cancelled if config.is_feature_enabled("auto_cancel_long_running_jobs") else 0,
+                    "restart_failed_jobs": failed_jobs_restarted
                 }
             }
             
@@ -2990,7 +3461,7 @@ def get_self_healing_stats():
         # Count only auto-healable recommendations (not general optimizations)
         actionable_recs_by_key = {}
         recommendations = list_recommendations()
-        auto_healable_types = {"stuck_pending_job", "idle_cluster", "execution_error"}
+        auto_healable_types = {"stuck_pending_job", "idle_cluster", "execution_error", "long_running_job"}
         
         for rec in recommendations:
             rec_type = (rec.get("type") or "").lower()

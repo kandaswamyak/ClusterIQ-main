@@ -102,5 +102,115 @@
       "dry_run": false
     },
     "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T13:19:47.153330",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T15:46:43.719617",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T17:07:12.209158",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T21:33:01.796154",
+    "action_type": "enable_autotermination",
+    "resource_id": "0204-144158-49xv1ode",
+    "resource_type": "cluster",
+    "status": "success",
+    "details": {
+      "cluster_name": "clusteriq",
+      "autotermination_minutes": 15,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T21:33:07.574569",
+    "action_type": "enable_autotermination",
+    "resource_id": "0209-155006-dasjmx7m",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v1",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0209-155006-dasjmx7m created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"d2501385-88a6-4ef4-a601-c2ef83dc6b1e\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T21:45:21.460207",
+    "action_type": "enable_autotermination",
+    "resource_id": "0209-161021-obal468y",
+    "resource_type": "cluster",
+    "status": "failed",
+    "details": {
+      "cluster_name": "job-601917661507559-run-45821246344505-long_running_job_cluster_v2",
+      "error": "{\"error_code\":\"INVALID_PARAMETER_VALUE\",\"message\":\"Cannot edit cluster 0209-161021-obal468y created by JobLauncher\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RequestInfo\",\"request_id\":\"1df019f5-85b4-4f79-9e77-231c163cfdff\",\"serving_data\":\"\"},{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"CM_API_ERROR_SOURCE_CALLER_ERROR\",\"domain\":\"\"}]}",
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T21:45:48.039302",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 247.12436666666665,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
+  },
+  {
+    "timestamp": "2026-02-09T21:49:03.616929",
+    "action_type": "cancel_long_running_job",
+    "resource_id": "45821246344505",
+    "resource_type": "job",
+    "status": "success",
+    "details": {
+      "job_name": "long_running_job",
+      "job_id": 601917661507559,
+      "run_id": 45821246344505,
+      "running_minutes": 250.2652,
+      "threshold_minutes": 30,
+      "dry_run": false
+    },
+    "dry_run": false
   }
 ]

@@ -5,7 +5,8 @@ import {
   analyzeJobsAndClusters,
   approveRecommendation,
   applyRecommendation,
-  rejectRecommendation
+  rejectRecommendation,
+  getHealingHistory
 } from '../services/api'
 import { AlertTriangle, TrendingDown, DollarSign, RefreshCw, CheckCircle2, XCircle } from 'lucide-react'
 
@@ -29,6 +30,12 @@ function Recommendations() {
     refetchInterval: autoRefresh ? refreshInterval * 1000 : false,
     retry: 2,
     retryDelay: 1000,
+  })
+
+  const { data: healingHistory } = useQuery({
+    queryKey: ['healing-history'],
+    queryFn: () => getHealingHistory(50),
+    refetchInterval: autoRefresh ? refreshInterval * 1000 : false,
   })
 
   const handleManualAnalyze = async () => {
@@ -70,7 +77,56 @@ function Recommendations() {
     }
   }
 
-  const recommendations = data?.recommendations || []
+  const successfullyHealedResourceIds = new Set(
+    (healingHistory?.history || [])
+      .filter((action) => action.status === 'success')
+      .map((action) => String(action.resource_id))
+  )
+
+  const isHealedRecommendation = (rec) => {
+    if (!rec) return false
+    const candidates = []
+    if (rec.resource_id !== undefined && rec.resource_id !== null) {
+      candidates.push(String(rec.resource_id))
+    }
+    if (rec.resource_name) candidates.push(String(rec.resource_name))
+    return candidates.some((id) => successfullyHealedResourceIds.has(id))
+  }
+
+  const isActiveRecommendation = (rec) => {
+    const status = (rec?.status || '').toLowerCase()
+    if (!status) return true
+    // Show pending and failed items (failed can be retried)
+    return status === 'pending' || status === 'failed'
+  }
+
+  // Get unique recommendations by deduplicating based on resource_id + type
+  const getUniqueRecommendations = (recs) => {
+    const uniqueMap = new Map()
+    for (const rec of recs) {
+      const resourceId = rec.resource_id || rec.resource_name || 'unknown'
+      const type = rec.type || 'other'
+      const key = `${resourceId}_${type}`
+      
+      // Keep the most recent recommendation for each resource+type combination
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, rec)
+      } else {
+        const existing = uniqueMap.get(key)
+        const existingDate = new Date(existing.created_at || existing.updated_at || 0)
+        const newDate = new Date(rec.created_at || rec.updated_at || 0)
+        if (newDate > existingDate) {
+          uniqueMap.set(key, rec)
+        }
+      }
+    }
+    return Array.from(uniqueMap.values())
+  }
+
+  const allRecommendations = (data?.recommendations || []).filter(
+    (rec) => isActiveRecommendation(rec) && !isHealedRecommendation(rec)
+  )
+  const recommendations = getUniqueRecommendations(allRecommendations)
 
   // Sort recommendations by date (newest first) and prioritize execution errors
   const sortedRecommendations = [...recommendations].sort((a, b) => {
@@ -153,7 +209,13 @@ function Recommendations() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-2">
         <div>
           <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">AI Recommendations</h1>
-          <p className="mt-3 text-base text-gray-600 font-medium">AI-powered optimization suggestions for your Databricks infrastructure</p>
+          <p className="mt-3 text-base text-gray-600 font-medium">
+            {recommendations.length > 0 ? (
+              <span><strong>{recommendations.length}</strong> unique recommendations (from {data?.recommendations?.length || 0} total)</span>
+            ) : (
+              'AI-powered optimization suggestions for your Databricks infrastructure'
+            )}
+          </p>
         </div>
         <div className="flex items-center space-x-4 flex-wrap">
           <label className="flex items-center space-x-2">
@@ -310,7 +372,7 @@ function Recommendations() {
             {/* Job Optimization Section */}
             {(() => {
               // Filter job recommendations, excluding auto-healable types (shown in Self Healing)
-              const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error']
+              const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error', 'long_running_job']
               const jobRecs = sortedRecommendations.filter(rec => 
                 rec.resource_type === 'job' && !autoHealableTypes.includes(rec.type)
               )

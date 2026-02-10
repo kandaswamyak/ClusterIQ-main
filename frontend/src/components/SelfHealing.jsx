@@ -7,7 +7,9 @@ import {
   runSelfHealing,
   getHealingHistory,
   getSelfHealingStats,
-  fetchApprovals
+  fetchApprovals,
+  fetchRecommendationsRealtime,
+  fetchLogs
 } from '../services/api'
 import { 
   Activity, 
@@ -35,14 +37,20 @@ function SelfHealing() {
   const { data: configData, isLoading: configLoading } = useQuery({
     queryKey: ['self-healing-config'],
     queryFn: getSelfHealingConfig,
-    refetchInterval: 30000
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000
   })
 
   // Fetch stats
   const { data: statsData } = useQuery({
     queryKey: ['self-healing-stats'],
     queryFn: getSelfHealingStats,
-    refetchInterval: 10000
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000
   })
 
   // Fetch history
@@ -60,7 +68,7 @@ function SelfHealing() {
   })
 
   // Fetch pending recommendations for actionable issues
-  const { data: pendingRecommendations } = useQuery({
+  const { data: pendingRecommendations, isLoading: pendingRecsLoading, refetch: refetchPendingRecs } = useQuery({
     queryKey: ['auto-remediation'],
     queryFn: async () => {
       const data = await fetchApprovals('PENDING')
@@ -81,7 +89,7 @@ function SelfHealing() {
       }
       
       // Filter to only show auto-healable issues (not general optimizations)
-      const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error']
+      const autoHealableTypes = ['stuck_pending_job', 'idle_cluster', 'execution_error', 'cost_leak', 'long_running_job']
       return allRecs.filter(rec => {
         // Skip recommendations for TERMINATED clusters
         if (rec.resource_type === 'cluster' && terminatedClusterIds.has(rec.resource_id)) {
@@ -90,12 +98,40 @@ function SelfHealing() {
         
         // Include auto-healable types
         if (autoHealableTypes.includes(rec.type)) return true
-        // Also include cost_leak type if it's an idle cluster detection
-        if (rec.type === 'cost_leak' && rec.title && rec.title.toLowerCase().includes('idle cluster')) return true
         return false
       })
     },
-    refetchInterval: 10000
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000
+  })
+
+  const { data: realtimeRecommendationsData } = useQuery({
+    queryKey: ['recommendations-realtime'],
+    queryFn: fetchRecommendationsRealtime,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000
+  })
+
+  // Fetch logs for real-time failed jobs and idle clusters
+  const { data: logsData } = useQuery({
+    queryKey: ['logs-realtime'],
+    queryFn: async () => {
+      try {
+        const logs = await fetchLogs('ERROR', 50)
+        return logs?.logs || []
+      } catch (err) {
+        console.warn('Failed to fetch logs:', err)
+        return []
+      }
+    },
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000
   })
 
   // Update config mutation
@@ -143,7 +179,137 @@ function SelfHealing() {
   const config = configData?.config || {}
   const stats = statsData || {}
   const history = historyData?.history || []
+  const realtimeRecommendations = realtimeRecommendationsData?.recommendations || []
+  const failedJobRecommendations = realtimeRecommendations.filter((rec) => {
+    const title = (rec.title || '').toLowerCase()
+    const description = (rec.description || '').toLowerCase()
+    const type = (rec.type || '').toLowerCase()
+    const status = (rec.status || '').toLowerCase()
+
+    if (status && status !== 'pending') return false
+
+    return (
+      type === 'execution_error' ||
+      type === 'job_failure' ||
+      type === 'failed_job' ||
+      type === 'stuck_pending_job' ||
+      type === 'long_running_job' ||
+      title.includes('long running') ||
+      title.includes('failed') ||
+      title.includes('failure') ||
+      title.includes('exception') ||
+      description.includes('failed') ||
+      description.includes('failure') ||
+      description.includes('exception')
+    )
+  })
+
+  const idleClusterRecommendations = realtimeRecommendations.filter((rec) => {
+    const title = (rec.title || '').toLowerCase()
+    const description = (rec.description || '').toLowerCase()
+    const type = (rec.type || '').toLowerCase()
+    const resourceType = (rec.resource_type || '').toLowerCase()
+
+    return (
+      type === 'idle_cluster' ||
+      (type === 'cost_leak' && (title.includes('idle') || description.includes('idle'))) ||
+      (resourceType === 'cluster' && (title.includes('idle') || description.includes('idle')))
+    )
+  })
+
+  // Extract failed jobs from logs - only real job failures
+  const failedJobsFromLogs = (logsData || []).filter((log) => {
+    const message = (log.message || '').toLowerCase()
+    const jobKeywords = message.includes('job') || message.includes('task') || message.includes('run')
+    const failureKeywords = message.includes('failed') || message.includes('failure') || message.includes('exception')
+    const isNonActionable = message.includes('no tasks') || message.includes('no configured tasks')
+    return jobKeywords && failureKeywords && !isNonActionable
+  })
+
+  // Extract idle clusters from logs
+  const idleClustersFromLogs = (logsData || []).filter((log) => {
+    const message = (log.message || '').toLowerCase()
+    return message.includes('cluster') && message.includes('idle')
+  })
+
+  const getRecommendationTime = (rec) => {
+    const dateValue = rec?.created_at || rec?.timestamp
+    if (!dateValue) return 0
+
+    if (typeof dateValue === 'string') {
+      const parsed = new Date(dateValue).getTime()
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+
+    if (dateValue instanceof Date) {
+      const parsed = dateValue.getTime()
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+
+    return 0
+  }
+
+  const formatIstDate = (value) => {
+    if (!value) return null
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return null
+
+    return parsed.toLocaleString('en-IN', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Asia/Kolkata'
+    })
+  }
+
+  const lastFailedJobRecommendation = [...failedJobRecommendations]
+    .sort((a, b) => getRecommendationTime(b) - getRecommendationTime(a))
+    .at(0) || null
+
+  const lastIdleClusterRecommendation = [...idleClusterRecommendations]
+    .sort((a, b) => getRecommendationTime(b) - getRecommendationTime(a))
+    .at(0) || null
+
+  const lastFailedJobFromLogs = failedJobsFromLogs.length > 0 ? failedJobsFromLogs[0] : null
+  const lastIdleClusterFromLogs = idleClustersFromLogs.length > 0 ? idleClustersFromLogs[0] : null
   const health = healthData?.summary || {}
+
+  // Track successfully healed resources to avoid showing duplicate recommendations
+  const successfullyHealedResourceIds = new Set(
+    (history || [])
+      .filter(action => action.status === 'success')
+      .map(action => action.resource_id)
+  )
+
+  // Extract resource IDs from log message (look for both numeric IDs and named resources)
+  const extractResourceIdsFromLog = (log) => {
+    if (!log?.message) return []
+    const ids = []
+    
+    // Match long numeric IDs (15+ digits for job/run IDs)
+    const numericMatch = log.message.match(/\b(\d{15,})\b/)
+    if (numericMatch) ids.push(numericMatch[1])
+    
+    // Match job names like "ClusterIQ_Metrics_Loader_4Hours"
+    const jobNameMatch = log.message.match(/([A-Za-z0-9_]+)\b/)
+    if (jobNameMatch) ids.push(jobNameMatch[1])
+    
+    return ids
+  }
+
+  // Check if cluster recommendation was already successfully healed
+  const clusterIdsFromLogs = lastIdleClusterFromLogs ? extractResourceIdsFromLog(lastIdleClusterFromLogs) : []
+  const hasClusterBeenHealed = 
+    (lastIdleClusterRecommendation && successfullyHealedResourceIds.has(lastIdleClusterRecommendation.resource_id)) ||
+    clusterIdsFromLogs.some(id => successfullyHealedResourceIds.has(id))
+
+  // Check if job recommendation was already successfully healed
+  const jobIdsFromLogs = lastFailedJobFromLogs ? extractResourceIdsFromLog(lastFailedJobFromLogs) : []
+  const hasJobBeenHealed = 
+    (lastFailedJobRecommendation && successfullyHealedResourceIds.has(lastFailedJobRecommendation.resource_id)) ||
+    jobIdsFromLogs.some(id => successfullyHealedResourceIds.has(id))
 
   useEffect(() => {
     if (configData?.config) {
@@ -283,16 +449,16 @@ function SelfHealing() {
 
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="metric-card" style={{ background: stats.enabled ? 'linear-gradient(135deg, #065f46 0%, #10b981 100%)' : 'linear-gradient(135deg, #6b7280 0%, #9ca3af 100%)', border: '1px solid' + (stats.enabled ? '#34d399' : '#d1d5db') }}>
+        <div className="metric-card" style={{ background: config.enabled ? 'linear-gradient(135deg, #065f46 0%, #10b981 100%)' : 'linear-gradient(135deg, #6b7280 0%, #9ca3af 100%)', border: '1px solid' + (config.enabled ? '#34d399' : '#d1d5db') }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white uppercase tracking-wide">Status</h3>
             <Shield className="h-6 w-6 text-white" />
           </div>
           <div className="text-4xl font-extrabold text-white">
-            {stats.enabled ? 'Active' : 'Inactive'}
+            {config.enabled ? 'Active' : 'Inactive'}
           </div>
           <p className="text-sm text-white mt-3 font-medium opacity-90">
-            {stats.dry_run ? 'Dry-run mode' : 'Live mode'}
+            {config.safety?.dry_run ? 'Dry-run mode' : 'Live mode'}
           </p>
         </div>
 
@@ -302,10 +468,10 @@ function SelfHealing() {
             <Activity className="h-6 w-6 text-blue-300" />
           </div>
           <div className="text-4xl font-extrabold text-white">
-            {health.health_percentage ? `${health.health_percentage.toFixed(0)}%` : '-'}
+            {health.health_percentage !== undefined && health.health_percentage !== null ? `${health.health_percentage.toFixed(0)}%` : '100%'}
           </div>
           <p className="text-sm text-blue-200 mt-3 font-medium">
-            {health.healthy || 0} / {health.total_clusters || 0} healthy
+            {health.healthy || health.total_clusters || 0} / {health.total_clusters || 0} healthy
           </p>
         </div>
 
@@ -328,10 +494,10 @@ function SelfHealing() {
             <AlertTriangle className="h-6 w-6 text-red-300" />
           </div>
           <div className="text-4xl font-extrabold text-white">
-            {pendingRecommendations && pendingRecommendations.length > 0 ? 1 : 0}
+            {pendingRecsLoading ? '...' : (pendingRecommendations?.length || 0)}
           </div>
           <p className="text-sm text-red-200 mt-3 font-medium">
-            Issues detected
+            {pendingRecommendations?.length ? 'Issues detected' : 'No issues detected'}
           </p>
         </div>
       </div>
@@ -440,9 +606,9 @@ function SelfHealing() {
         
         return (
           <div className="dxc-card border-l-4 border-purple-500">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
               <AlertTriangle className="h-6 w-6 mr-3 text-purple-600" />
-              Auto-Remediation (1)
+              Auto-Remediation
             </h2>
             <div 
               className={`p-4 border rounded-lg ${
@@ -454,7 +620,7 @@ function SelfHealing() {
               <div className="flex items-start gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <h3 className="font-semibold text-gray-900">{topRec.title}</h3>
+                    <h3 className="text-sm font-semibold text-gray-900">{topRec.title}</h3>
                     <span className={`px-2 py-0.5 text-xs rounded font-semibold ${
                       topRec.severity === 'high' ? 'bg-red-100 text-red-700' :
                       topRec.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' :
@@ -468,8 +634,8 @@ function SelfHealing() {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-700 mb-2">{topRec.description}</p>
-                  <div className="flex items-center gap-4 text-xs text-gray-600">
+                  <p className="text-xs text-gray-700 mb-2">{topRec.description}</p>
+                  <div className="flex items-center gap-4 text-[11px] text-gray-600">
                     <span>Resource: {topRec.resource_name || topRec.resource_id}</span>
                     {topRec.details?.pending_duration_minutes && (
                       <span className="text-yellow-700 font-semibold">
@@ -486,6 +652,119 @@ function SelfHealing() {
           </div>
         )
       })()}
+
+      {/* Cluster Recommendation */}
+      {(lastIdleClusterRecommendation || lastIdleClusterFromLogs) && !hasClusterBeenHealed && (
+        <div className="dxc-card">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+            <AlertTriangle className="h-6 w-6 mr-3 text-blue-600" />
+            Cluster Recommendation ({idleClusterRecommendations.length})
+          </h2>
+
+          {lastIdleClusterRecommendation ? (
+            <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">{lastIdleClusterRecommendation.title}</h3>
+                  <p className="text-xs text-gray-700 mt-1">
+                    {lastIdleClusterRecommendation.resource_name || lastIdleClusterRecommendation.resource_id || 'Cluster'}
+                  </p>
+                </div>
+                <span className="text-[11px] text-gray-600">
+                  {formatIstDate(
+                    lastIdleClusterRecommendation.created_at || lastIdleClusterRecommendation.timestamp
+                  ) || 'No timestamp'}
+                </span>
+              </div>
+              {lastIdleClusterRecommendation.description && (
+                <p className="text-xs text-gray-700 mt-3">{lastIdleClusterRecommendation.description}</p>
+              )}
+              {lastIdleClusterRecommendation.details?.idle_duration_minutes && (
+                <p className="text-[11px] text-gray-600 mt-2">
+                  Idle duration: {lastIdleClusterRecommendation.details.idle_duration_minutes.toFixed(1)}m
+                </p>
+              )}
+            </div>
+          ) : lastIdleClusterFromLogs ? (
+            <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Idle Cluster Detected</h3>
+                  <p className="text-xs text-gray-700 mt-1">{lastIdleClusterFromLogs.logger || 'System'}</p>
+                </div>
+                <span className="text-[11px] text-gray-600">
+                  {lastIdleClusterFromLogs.timestamp ? new Date(lastIdleClusterFromLogs.timestamp).toLocaleString('en-IN', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                    timeZone: 'Asia/Kolkata'
+                  }) : 'Now'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-700 mt-3">{lastIdleClusterFromLogs.message}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Job Recommendation */}
+      {(lastFailedJobRecommendation || lastFailedJobFromLogs) && !hasJobBeenHealed && (
+        <div className="dxc-card">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+            <AlertTriangle className="h-6 w-6 mr-3 text-red-600" />
+            Job Recommendation
+          </h2>
+
+          {lastFailedJobRecommendation ? (
+            <div className="p-4 border border-red-200 rounded-lg bg-red-50">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">{lastFailedJobRecommendation.title}</h3>
+                  <p className="text-xs text-gray-700 mt-1">
+                    {lastFailedJobRecommendation.resource_name || lastFailedJobRecommendation.resource_id || 'Job'}
+                  </p>
+                </div>
+                <span className="text-[11px] text-gray-600">
+                  {formatIstDate(
+                    lastFailedJobRecommendation.created_at || lastFailedJobRecommendation.timestamp
+                  ) || 'No timestamp'}
+                </span>
+              </div>
+              {lastFailedJobRecommendation.description && (
+                <p className="text-xs text-gray-700 mt-3">{lastFailedJobRecommendation.description}</p>
+              )}
+              {lastFailedJobRecommendation.details?.reason && (
+                <p className="text-[11px] text-gray-600 mt-2">Reason: {lastFailedJobRecommendation.details.reason}</p>
+              )}
+              {lastFailedJobRecommendation.details?.error_message && (
+                <p className="text-[11px] text-gray-600 mt-1">Error: {lastFailedJobRecommendation.details.error_message}</p>
+              )}
+            </div>
+          ) : lastFailedJobFromLogs ? (
+            <div className="p-4 border border-red-200 rounded-lg bg-red-50">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Failed Job Detected</h3>
+                  <p className="text-xs text-gray-700 mt-1">{lastFailedJobFromLogs.logger || 'Job Service'}</p>
+                </div>
+                <span className="text-[11px] text-gray-600">
+                  {lastFailedJobFromLogs.timestamp ? new Date(lastFailedJobFromLogs.timestamp).toLocaleString('en-IN', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                    timeZone: 'Asia/Kolkata'
+                  }) : 'Now'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-700 mt-3">{lastFailedJobFromLogs.message}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/* Activity History */}
       <div className="dxc-card">
@@ -507,12 +786,13 @@ function SelfHealing() {
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-gray-900">{action.action_type.replace(/_/g, ' ')}</h3>
                     <span className="text-xs text-gray-500">
-                      {new Date(action.timestamp).toLocaleString('en-US', { 
+                      {new Date(action.timestamp).toLocaleString('en-IN', { 
                         month: 'short', 
                         day: 'numeric', 
                         hour: 'numeric', 
                         minute: '2-digit', 
-                        hour12: true 
+                        hour12: true,
+                        timeZone: 'Asia/Kolkata'
                       })}
                     </span>
                   </div>

@@ -163,6 +163,33 @@ class DatabricksClient:
             logger.error(f"Error cancelling job run {run_id}: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e), "run_id": run_id}
     
+    def submit_job_run(self, job_id: int) -> Dict[str, Any]:
+        """Submit a new run for a job (restart/rerun a failed job).
+        
+        Args:
+            job_id: Job ID to submit/rerun
+            
+        Returns:
+            Result dictionary with run_id if successful
+        """
+        try:
+            url = f"{self.host}/api/2.1/jobs/run-now"
+            payload = {"job_id": job_id}
+            
+            logger.info(f"Submitting new run for job {job_id}")
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            run_id = data.get("run_id")
+            
+            logger.info(f"Successfully submitted new run {run_id} for job {job_id}")
+            return {"status": "success", "job_id": job_id, "run_id": run_id}
+        
+        except Exception as e:
+            logger.error(f"Error submitting run for job {job_id}: {str(e)}", exc_info=True)
+            return {"status": "error", "error": str(e), "job_id": job_id}
+    
     def get_all_clusters(self) -> List[Dict[str, Any]]:
         """Fetch all clusters from Databricks workspace using REST API.
         
@@ -392,7 +419,7 @@ class DatabricksClient:
             payload.update(kwargs)
             
             logger.info(f"Updating cluster {cluster_id} with payload: {payload}")
-            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            response = requests.post(url, headers=self.headers, json=payload, timeout=120)
             response.raise_for_status()
             
             logger.info(f"Successfully updated cluster {cluster_id} config: {kwargs}")
